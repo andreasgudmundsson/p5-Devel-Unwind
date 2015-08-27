@@ -6,9 +6,9 @@ static XOP mark_xop;
 static OP  mark_pp(pTHX);
 static int (*next_keyword_plugin)(pTHX_ char *, STRLEN, OP **);
 
-#define mark_pp _mark_pp(aTHX)
 static OP* _mark_pp(pTHX)
 {
+    return PL_op->op_next;
 }
 
 #define parse_mark() _parse_mark(aTHX)
@@ -31,9 +31,9 @@ mark_keyword_plugin(pTHX_
                   OP **op_ptr)
 {
     if (keyword_len == 4 && strnEQ(keyword_ptr, "mark", 4))  {
-        OP *mark_block;
-        mark_block = parse_mark();
-        *op_ptr = mark_block;
+        OP *mark_op = newUNOP(OP_CUSTOM, 0, parse_mark());
+        mark_op->op_ppaddr = _mark_pp;
+        *op_ptr = mark_op;
         return KEYWORD_PLUGIN_EXPR;
     }
     else {
