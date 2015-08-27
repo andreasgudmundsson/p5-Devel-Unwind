@@ -1,0 +1,47 @@
+
+IDEA
+----
+Allows you to unwind the stack to a set mark.
+
+API:
+  mark($id, BLOCK1, BLOCK2)
+  unwind_to_mark($id)
+
+mark($id, BLOCK1, BLOCK2) unconditionally runs BLOCK1 but if BLOCK1
+constains code that does unwind_to_mark($id) then we unwind the stack
+until the scope containing the mark command gets hit then BLOCK2 gets
+executed.
+
+
+Example:
+--------
+Prints "1"
+
+mark($expr,{
+         eval {
+             sub {
+                 eval {
+                     sub {
+                         unwind($expr);
+                     }->();
+                     say "0";
+                 }
+             }->()
+           }
+         }
+     }
+     ,
+     {
+         say "1";
+     });
+
+
+FIRST IMPLEMENTATION
+--------------------
+mark {
+     eval {
+          sub {
+             unwind;
+          }->()
+     }
+}
