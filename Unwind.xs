@@ -105,7 +105,7 @@ mark_keyword_plugin(pTHX_
 
         *op_ptr = newLISTOP(OP_NULL, 0, mark, erase->op_sibling);
 
-        return KEYWORD_PLUGIN_EXPR;
+        return KEYWORD_PLUGIN_STMT;
     }
     else {
         return next_keyword_plugin(aTHX_ keyword_ptr, keyword_len, op_ptr);
