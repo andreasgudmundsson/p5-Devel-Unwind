@@ -14,22 +14,24 @@ static XOP erase_xop;
 static OP  mark_pp(pTHX);
 static int (*next_keyword_plugin)(pTHX_ char *, STRLEN, OP **);
 
-static char *MARK = "666 number of the beast";
+static char *BREADCRUMB = "666 number of the beast";
 
-static OP* _mark_pp(pTHX)
+static OP *_mark_pp(pTHX)
 {
     dSP;
-    DEBUG_printf("cur(%p)->sibling(%p)->sibling(%p)-> next(%p)\n",
+    DEBUG_printf("label(%s): cur(%p)->sibling(%p)->sibling(%p)-> next(%p)\n",
+                 cPVOPx(PL_op)->op_pv,
                  PL_op,
                  PL_op->op_sibling,
                  PL_op->op_sibling->op_sibling,
                  PL_op->op_sibling->op_sibling->op_next);
-    XPUSHs((SV*)MARK);
-    /*
-      I store the address of the OP for  _erase_pp
-      as the potentinal retop
-     */
-    XPUSHs((SV*)PL_op->op_sibling->op_sibling);
+
+    char *label = cPVOPx(PL_op)->op_pv;
+    OP   *retop = PL_op->op_sibling->op_sibling;
+
+    XPUSHs((SV*)BREADCRUMB);
+    XPUSHs((SV*)label);
+    XPUSHs((SV*)retop);
     RETURN;
 }
 
@@ -37,12 +39,14 @@ static OP* _erase_pp(pTHX)
 {
     dSP;
     DEBUG_printf("_erase_pp\n");
-    POPs;
-    POPs;
+    POPs; // retop
+    POPs; // label
+    POPs; // BREADCRUMB
+
     RETURN;
 }
 
-static OP* _parse_mark(pTHX)
+static OP *_parse_block(pTHX)
 {
     OP *o = parse_block(0);
     if (!o) {
@@ -54,6 +58,23 @@ static OP* _parse_mark(pTHX)
     return op_scope(o);
 }
 
+static char *_parse_label(pTHX) {
+    int error_count = PL_parser->error_count;
+    SV *label       = parse_label(0);
+
+    if (error_count < PL_parser->error_count)
+        croak("Invalid label for 'mark' at %s.\n", OutCopFILE(PL_curcop));
+    else
+        DEBUG_printf("Valid label: %s\n", SvPV_nolen(label));
+
+    char *p = savesharedsvpv(label);
+    SvREFCNT_dec(label);
+    return p;
+}
+
+/*
+ * mark LABEL BLOCK
+ */
 static int
 mark_keyword_plugin(pTHX_
                   char *keyword_ptr,
@@ -61,17 +82,20 @@ mark_keyword_plugin(pTHX_
                   OP **op_ptr)
 {
     if (keyword_len == 4 && strnEQ(keyword_ptr, "mark", 4))  {
-        OP *mark;
-        OP *block;
-        OP *erase;
+        char *label;
+        OP   *mark;
+        OP   *block;
+        OP   *erase;
 
-        mark = newOP(OP_CUSTOM, 0);
+        label = _parse_label(aTHX);
+        block = _parse_block(aTHX);
+
+        mark = newPVOP(OP_CUSTOM, 0, label);
         mark->op_ppaddr = _mark_pp;
 
         erase = newOP(OP_CUSTOM, 0);
         erase->op_ppaddr = _erase_pp;
 
-        block = _parse_mark(aTHX);
 
         mark->op_sibling = block;
         block->op_sibling = erase;
@@ -89,7 +113,7 @@ mark_keyword_plugin(pTHX_
 }
 
 static void
-_unwind(pTHX)
+_unwind(pTHX, char *tolabel)
 {
     DEBUG_printf("unwinding:\n%d     %d     %d\n",
                  PL_stack_sp - PL_stack_base,
@@ -103,13 +127,13 @@ _unwind(pTHX)
             const PERL_CONTEXT *cx = &cxstack[i];
             DEBUG_printf("%d%s    %d%s     %d%s\n"
                          , cx->blk_oldsp
-                         , ((char *)(*(PL_stack_base + cx->blk_oldsp+1)) == MARK
+                         , ((char *)(*(PL_stack_base + cx->blk_oldsp+1)) == BREADCRUMB
                             ? "X" : "")
                          , cx->blk_oldmarksp
-                         , ((char *)(*(PL_stack_base + cx->blk_oldmarksp)) == MARK
+                         , ((char *)(*(PL_stack_base + cx->blk_oldmarksp)) == BREADCRUMB
                             ? "X" : "")
                          , cx->blk_oldscopesp
-                         , ((char *)(*(PL_stack_base + cx->blk_oldscopesp)) == MARK
+                         , ((char *)(*(PL_stack_base + cx->blk_oldscopesp)) == BREADCRUMB
                             ? "X" : "")
                 );
             /*
@@ -121,13 +145,19 @@ _unwind(pTHX)
               have created my own CXt_MARK that stores the old stack
               pointers and the retop. But that's outside the scope of
               XS it seems.
-             */
-            if ( ((char *)(*(PL_stack_base + cx->blk_oldsp+1))) == MARK) {
-                dounwind(i);
-                OP *retop = *(PL_stack_base + cx->blk_oldsp+2);
-                DEBUG_printf("retop=%p\n", retop);
-                PL_op->op_next    = retop;
-                return;
+            */
+            {
+                char *breadcrumb = (char *)*(PL_stack_base + cx->blk_oldsp+1);
+                if ( breadcrumb == BREADCRUMB) {
+                    char *label = (char *)*(PL_stack_base + cx->blk_oldsp+2);
+                    OP   *retop =   (OP *)*(PL_stack_base + cx->blk_oldsp+3);
+                    DEBUG_printf("retop=%p label=%s\n", retop, label);
+                    if (0 == strcmp(label,tolabel)) {
+                        dounwind(i);
+                        PL_op->op_next    = retop;
+                        return;
+                    }
+                }
             }
         }
     }
@@ -150,6 +180,6 @@ BOOT:
     PL_keyword_plugin   = mark_keyword_plugin;
 
 
-void unwind()
+void unwind(char *s)
     CODE:
-     _unwind(aTHX);
+     _unwind(aTHX_ s);
