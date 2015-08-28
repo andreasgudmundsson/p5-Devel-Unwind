@@ -112,13 +112,21 @@ _unwind(pTHX)
                          , ((char *)(*(PL_stack_base + cx->blk_oldscopesp)) == MARK
                             ? "X" : "")
                 );
+            /*
+              I have a feeling that looking at 1+cx->blk_oldsp is a
+              sign I'm doing something wrong. At least I don't
+              completely understand why the MARK is not at
+              PL_stack_base + cx->blk_oldsp. I think its because I'm
+              not pushing a new block on the context stack. I could
+              have created my own CXt_MARK that stores the old stack
+              pointers and the retop. But that's outside the scope of
+              XS it seems.
+             */
             if ( ((char *)(*(PL_stack_base + cx->blk_oldsp+1))) == MARK) {
+                dounwind(i);
                 OP *retop = *(PL_stack_base + cx->blk_oldsp+2);
                 DEBUG_printf("retop=%p\n", retop);
                 PL_op->op_next    = retop;
-                PL_stack_sp       = cx->blk_oldsp;
-                *PL_markstack_ptr = cx->blk_oldmarksp;
-                PL_scopestack_ix  = cx->blk_oldscopesp;
                 return;
             }
         }
