@@ -14,6 +14,8 @@ static XOP erase_xop;
 static XOP unwind_xop;
 static int (*next_keyword_plugin)(pTHX_ char *, STRLEN, OP **);
 
+static _pop_to_mark(pTHX_ int startingblock, char *label);
+
 static char *BREADCRUMB = "666 number of the beast";
 
 static OP *_mark_pp(pTHX)
@@ -48,62 +50,118 @@ static OP* _erase_pp(pTHX)
 
 static OP* _unwind_pp(pTHX)
 {
-
+    dVAR;
     dSP;
-    char *tolabel;
-    tolabel = cPVOPx(PL_op)->op_pv;
-    DEBUG_printf("_unwind_pp: label(%s)\n", tolabel);
-    DEBUG_printf("unwinding:\n%d     %d     %d\n",
-                 PL_stack_sp - PL_stack_base,
-                 *PL_markstack_ptr,
-                 PL_scopestack_ix
-        );
-//    POPSTACK_TO(PL_mainstack);
     {
-        int i;
-        DEBUG_printf("Stack Mark Scope\n");
-        for (i=cxstack_ix; i >= 0; i--) {
-            const PERL_CONTEXT *cx = &cxstack[i];
-            DEBUG_printf("%d%s    %d%s     %d%s\n"
-                         , cx->blk_oldsp
-                         , ((char *)(*(PL_stack_base + cx->blk_oldsp+1)) == BREADCRUMB
-                            ? "X" : "")
-                         , cx->blk_oldmarksp
-                         , ((char *)(*(PL_stack_base + cx->blk_oldmarksp)) == BREADCRUMB
-                            ? "X" : "")
-                         , cx->blk_oldscopesp
-                         , ((char *)(*(PL_stack_base + cx->blk_oldscopesp)) == BREADCRUMB
-                            ? "X" : "")
-                );
+        char *tolabel;
+        int cxix;
+        int in_eval = PL_in_eval;
+
+        tolabel = cPVOPx(PL_op)->op_pv;
+        DEBUG_printf("_unwind_pp: label(%s)\n", tolabel);
+        DEBUG_printf("unwinding:\n%d     %d     %d\n",
+                     PL_stack_sp - PL_stack_base,
+                     *PL_markstack_ptr,
+                     PL_scopestack_ix
+            );
+
+        /* If we don't find the mark+label on the current stack then
+         * completely unwind the context stack and switch to the
+         * previous stack
+         */
+        while ((cxix = _pop_to_mark(aTHX_ cxstack_ix, tolabel)) < 0) {
+            dounwind(-1);
+            POPSTACK;
+        }
+
+        DEBUG_printf("FOOBAR: %d\n", cxix);
+        if (cxix >= 0) {
+            const PERL_CONTEXT *cx = &cxstack[cxix];
+            char *label = (char *)*(PL_stack_base + cx->blk_oldsp+2);
+            OP   *retop =   (OP *)*(PL_stack_base + cx->blk_oldsp+3);
+            DEBUG_printf("_unwind_pp: retop=%p label=%s\n", retop, label);
+            /* Mark found
+               ----------
+               If the mark was found in a previous context
+               then unwind to that
+             */
+            if (cxix < cxstack_ix) {
+                dounwind(cxix);
+            }
+
+            DEBUG_printf("_unwind_pp: still here\n");
             /*
-              I have a feeling that looking at 1+cx->blk_oldsp is a
-              sign I'm doing something wrong. At least I don't
-              completely understand why the MARK is not at
-              PL_stack_base + cx->blk_oldsp. I think its because I'm
-              not pushing a new block on the context stack. I could
-              have created my own CXt_MARK that stores the old stack
-              pointers and the retop. But that's outside the scope of
-              XS it seems.
-            */
-            {
-                char *breadcrumb = (char *)*(PL_stack_base + cx->blk_oldsp+1);
-                if ( breadcrumb == BREADCRUMB) {
-                    char *label = (char *)*(PL_stack_base + cx->blk_oldsp+2);
-                    OP   *retop =   (OP *)*(PL_stack_base + cx->blk_oldsp+3);
-                    DEBUG_printf("retop=%p label=%s\n", retop, label);
-                    if (0 == strcmp(label,tolabel)) {
-                        DEBUG_printf("FOUND retop=%p label=%s\n", retop, label);
-                        dounwind(i);
-                        PL_op->op_next  = retop;
-                        RETURN;
-                    }
+              If we were in an eval block,signal handler or maybe
+              something else I'm not aware of that's run in an
+              implicit eval block then...
+             */
+            if (in_eval) {
+                PERL_CONTEXT *cx;
+                SV **newsp; /* used by POPBLOCK */
+                int gimme;  /* ditto */
+                int optype; /* ditto */
+                POPBLOCK(cx,PL_curpm);
+                DEBUG_printf("_unwind_pp: after pop\n");
+                /* ... */
+                //POPEVAL(cx);
+                DEBUG_printf("_unwind_pp: after popeval\n");
+                PL_stack_sp = newsp;
+                LEAVE;
+                PL_restartjmpenv = cx->blk_eval.cur_top_env;
+                PL_restartop = retop;
+                JMPENV_JUMP(3);
+            } else {
+                PL_op->op_next = retop;
+                RETURN;
+            }
+        }
+    }
+    my_failure_exit();
+    /* NOTREACHED */
+}
+
+static int _pop_to_mark(pTHX_ int startingblock, char *tolabel)
+{
+    DEBUG_printf("_pop_to_mark\n");
+    DEBUG_printf("Stack Mark Scope\n");
+    int i;
+    for (i=cxstack_ix; i >= 0; i--) {
+        const PERL_CONTEXT *cx = &cxstack[i];
+        DEBUG_printf("%d%s    %d%s     %d%s\n"
+                     , cx->blk_oldsp
+                     , ((char *)(*(PL_stack_base + cx->blk_oldsp+1)) == BREADCRUMB
+                        ? "X" : "")
+                     , cx->blk_oldmarksp
+                     , ((char *)(*(PL_stack_base + cx->blk_oldmarksp)) == BREADCRUMB
+                        ? "X" : "")
+                     , cx->blk_oldscopesp
+                     , ((char *)(*(PL_stack_base + cx->blk_oldscopesp)) == BREADCRUMB
+                        ? "X" : "")
+            );
+        /*
+          I have a feeling that looking at 1+cx->blk_oldsp is a
+          sign I'm doing something wrong. At least I don't
+          completely understand why the MARK is not at
+          PL_stack_base + cx->blk_oldsp. I think its because I'm
+          not pushing a new block on the context stack. I could
+          have created my own CXt_MARK that stores the old stack
+          pointers and the retop. But that's outside the scope of
+          XS it seems.
+        */
+        {
+            char *breadcrumb = (char *)*(PL_stack_base + cx->blk_oldsp+1);
+            if ( breadcrumb == BREADCRUMB) {
+                char *label = (char *)*(PL_stack_base + cx->blk_oldsp+2);
+                OP   *retop =   (OP *)*(PL_stack_base + cx->blk_oldsp+3);
+                DEBUG_printf("retop=%p label=%s\n", retop, label);
+                if (0 == strcmp(label,tolabel)) {
+                    DEBUG_printf("FOUND retop=%p label=%s\n", retop, label);
+                    return i;
                 }
             }
         }
     }
-
-
-    RETURN;
+    return -1;
 }
 
 static OP *_parse_block(pTHX)
