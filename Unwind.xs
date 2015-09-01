@@ -11,7 +11,7 @@
 
 static XOP mark_xop;
 static XOP erase_xop;
-static OP  mark_pp(pTHX);
+static XOP unwind_xop;
 static int (*next_keyword_plugin)(pTHX_ char *, STRLEN, OP **);
 
 static char *BREADCRUMB = "666 number of the beast";
@@ -42,6 +42,66 @@ static OP* _erase_pp(pTHX)
     POPs; // retop
     POPs; // label
     POPs; // BREADCRUMB
+
+    RETURN;
+}
+
+static OP* _unwind_pp(pTHX)
+{
+
+    dSP;
+    char *tolabel;
+    tolabel = cPVOPx(PL_op)->op_pv;
+    DEBUG_printf("_unwind_pp: label(%s)\n", tolabel);
+    DEBUG_printf("unwinding:\n%d     %d     %d\n",
+                 PL_stack_sp - PL_stack_base,
+                 *PL_markstack_ptr,
+                 PL_scopestack_ix
+        );
+//    POPSTACK_TO(PL_mainstack);
+    {
+        int i;
+        DEBUG_printf("Stack Mark Scope\n");
+        for (i=cxstack_ix; i >= 0; i--) {
+            const PERL_CONTEXT *cx = &cxstack[i];
+            DEBUG_printf("%d%s    %d%s     %d%s\n"
+                         , cx->blk_oldsp
+                         , ((char *)(*(PL_stack_base + cx->blk_oldsp+1)) == BREADCRUMB
+                            ? "X" : "")
+                         , cx->blk_oldmarksp
+                         , ((char *)(*(PL_stack_base + cx->blk_oldmarksp)) == BREADCRUMB
+                            ? "X" : "")
+                         , cx->blk_oldscopesp
+                         , ((char *)(*(PL_stack_base + cx->blk_oldscopesp)) == BREADCRUMB
+                            ? "X" : "")
+                );
+            /*
+              I have a feeling that looking at 1+cx->blk_oldsp is a
+              sign I'm doing something wrong. At least I don't
+              completely understand why the MARK is not at
+              PL_stack_base + cx->blk_oldsp. I think its because I'm
+              not pushing a new block on the context stack. I could
+              have created my own CXt_MARK that stores the old stack
+              pointers and the retop. But that's outside the scope of
+              XS it seems.
+            */
+            {
+                char *breadcrumb = (char *)*(PL_stack_base + cx->blk_oldsp+1);
+                if ( breadcrumb == BREADCRUMB) {
+                    char *label = (char *)*(PL_stack_base + cx->blk_oldsp+2);
+                    OP   *retop =   (OP *)*(PL_stack_base + cx->blk_oldsp+3);
+                    DEBUG_printf("retop=%p label=%s\n", retop, label);
+                    if (0 == strcmp(label,tolabel)) {
+                        DEBUG_printf("FOUND retop=%p label=%s\n", retop, label);
+                        dounwind(i);
+                        PL_op->op_next  = retop;
+                        RETURN;
+                    }
+                }
+            }
+        }
+    }
+
 
     RETURN;
 }
@@ -107,6 +167,18 @@ mark_keyword_plugin(pTHX_
 
         return KEYWORD_PLUGIN_STMT;
     }
+    else if (keyword_len == 6 && strnEQ(keyword_ptr, "unwind", 6)) {
+        char *label;
+        OP   *unwind;
+
+        label  = _parse_label(aTHX);
+        unwind = newPVOP(OP_CUSTOM, 0, label);
+        unwind->op_ppaddr = _unwind_pp;
+
+        *op_ptr = unwind;
+
+        return KEYWORD_PLUGIN_STMT;
+    }
     else {
         return next_keyword_plugin(aTHX_ keyword_ptr, keyword_len, op_ptr);
     }
@@ -115,71 +187,30 @@ mark_keyword_plugin(pTHX_
 static void
 _unwind(pTHX, char *tolabel)
 {
-    DEBUG_printf("unwinding:\n%d     %d     %d\n",
-                 PL_stack_sp - PL_stack_base,
-                 *PL_markstack_ptr,
-                 PL_scopestack_ix
-        );
-    {
-        int i;
-        DEBUG_printf("Stack Mark Scope\n");
-        for (i=cxstack_ix; i >= 0; i--) {
-            const PERL_CONTEXT *cx = &cxstack[i];
-            DEBUG_printf("%d%s    %d%s     %d%s\n"
-                         , cx->blk_oldsp
-                         , ((char *)(*(PL_stack_base + cx->blk_oldsp+1)) == BREADCRUMB
-                            ? "X" : "")
-                         , cx->blk_oldmarksp
-                         , ((char *)(*(PL_stack_base + cx->blk_oldmarksp)) == BREADCRUMB
-                            ? "X" : "")
-                         , cx->blk_oldscopesp
-                         , ((char *)(*(PL_stack_base + cx->blk_oldscopesp)) == BREADCRUMB
-                            ? "X" : "")
-                );
-            /*
-              I have a feeling that looking at 1+cx->blk_oldsp is a
-              sign I'm doing something wrong. At least I don't
-              completely understand why the MARK is not at
-              PL_stack_base + cx->blk_oldsp. I think its because I'm
-              not pushing a new block on the context stack. I could
-              have created my own CXt_MARK that stores the old stack
-              pointers and the retop. But that's outside the scope of
-              XS it seems.
-            */
-            {
-                char *breadcrumb = (char *)*(PL_stack_base + cx->blk_oldsp+1);
-                if ( breadcrumb == BREADCRUMB) {
-                    char *label = (char *)*(PL_stack_base + cx->blk_oldsp+2);
-                    OP   *retop =   (OP *)*(PL_stack_base + cx->blk_oldsp+3);
-                    DEBUG_printf("retop=%p label=%s\n", retop, label);
-                    if (0 == strcmp(label,tolabel)) {
-                        dounwind(i);
-                        PL_op->op_next    = retop;
-                        return;
-                    }
-                }
-            }
-        }
-    }
 }
 
 MODULE = Stack::Unwind PACKAGE = Stack::Unwind
 
 BOOT:
     XopENTRY_set(&mark_xop, xop_name,  "mark_xop");
-    XopENTRY_set(&mark_xop, xop_desc,  "mark of the beast");
-    XopENTRY_set(&mark_xop, xop_class, OA_UNOP);
+    XopENTRY_set(&mark_xop, xop_desc,  "mark the stack for unwinding");
+    XopENTRY_set(&mark_xop, xop_class, OA_PVOP_OR_SVOP);
     Perl_custom_op_register(aTHX_ _mark_pp, &mark_xop);
 
     XopENTRY_set(&erase_xop, xop_name,  "erase_xop");
-    XopENTRY_set(&erase_xop, xop_desc,  "erase the mark of the beast");
+    XopENTRY_set(&erase_xop, xop_desc,  "erase the mark");
     XopENTRY_set(&erase_xop, xop_class, OA_UNOP);
     Perl_custom_op_register(aTHX_ _erase_pp, &erase_xop);
+
+    XopENTRY_set(&unwind_xop, xop_name,  "unwind_xop");
+    XopENTRY_set(&unwind_xop, xop_desc,  "unwind the stack to the mark");
+    XopENTRY_set(&unwind_xop, xop_class, OA_PVOP_OR_SVOP);
+    Perl_custom_op_register(aTHX_ _unwind_pp, &unwind_xop);
 
     next_keyword_plugin =  PL_keyword_plugin;
     PL_keyword_plugin   = mark_keyword_plugin;
 
 
-void unwind(char *s)
+void unwind_old(char *s)
     CODE:
      _unwind(aTHX_ s);
