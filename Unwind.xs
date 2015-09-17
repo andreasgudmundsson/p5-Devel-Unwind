@@ -39,7 +39,7 @@ static XOP unwind_xop;
 static int (*next_keyword_plugin)(pTHX_ char *, STRLEN, OP **);
 
 static int _find_mark(pTHX_ const PERL_SI *, char *, OP **, I32 *);
-static int _find_eval(pTHX_ I32 startingblock, I32 *);
+static int _find_eval(pTHX_ const PERL_SI *, I32 *);
 
 static char *BREADCRUMB = "666 number of the beast";
 
@@ -103,18 +103,21 @@ static OP* _detour_pp(pTHX)
             const PERL_SI *si;
             I32  mark_cxix;
             I32  eval_cxix;
+
             for (si = PL_curstackinfo; si; si = si->si_prev) {
-                if (_find_mark(aTHX_ si, mark, &mark_retop, &mark_cxix)) {
-                    if (!mark_retop) {
-                        croak("Can not setup a detour: mark '%s' not found.", mark );
-                    } else {
-                        if (!_find_eval(cxstack_ix, &eval_cxix)) {
-                            croak("Didn't find an 'EVAL' context. WTF?");
-                        } else {
-                            cxstack[eval_cxix].blk_eval.retop = mark_retop;
-                        }
-                    }
-                    break;
+                if (_find_mark(aTHX_ si, mark, &mark_retop, &mark_cxix)) break;
+            }
+
+            if (!mark_retop) {
+                croak("Can not setup a detour: mark '%s' not found.", mark );
+            } else {
+                DEBUG_printf("Mark%s on the current stack\n",
+                             si == PL_curstackinfo ? "" : " not");
+                if (!_find_eval(si, &eval_cxix)) {
+                    DEBUG_printf("Didn't find an 'EVAL' context. WTF?");
+                } else {
+                    DEBUG_printf("patching with mark_retop\n");
+                    si->si_cxstack[eval_cxix].blk_eval.retop = mark_retop;
                 }
             }
         }
@@ -122,12 +125,14 @@ static OP* _detour_pp(pTHX)
     RETURN;
 }
 
-static int _find_eval(pTHX_ I32 startingblock, I32 *outIx)
+static int _find_eval(pTHX_
+                      const PERL_SI *stackinfo,
+                      I32 *outIx)
 {
     dVAR;
     I32 i;
-    for (i = startingblock; i >= 0; i--) {
-	PERL_CONTEXT *cx = &cxstack[i];
+    for (i = stackinfo->si_cxix; i >= 0; i--) {
+	PERL_CONTEXT *cx = &(stackinfo->si_cxstack[i]);
 	switch (CxTYPE(cx)) {
 	default:
 	    continue;
@@ -145,7 +150,7 @@ _find_mark(pTHX_ const PERL_SI *stackinfo, char *tomark,
            OP **outRetop, I32 *outIx)
 {
     I32 i;
-    DEBUG_printf("_pop_to_mark on stack %s\n", si_names[stackinfo->si_type+1]);
+    DEBUG_printf("find mark '%s' on stack '%s'\n", tomark, si_names[stackinfo->si_type+1]);
     DEBUG_printf("\tStack Mark Scope\n");
     for (i=stackinfo->si_cxix; i >= 0; i--) {
         PERL_CONTEXT *cx         = &(stackinfo->si_cxstack[i]);
@@ -162,13 +167,14 @@ _find_mark(pTHX_ const PERL_SI *stackinfo, char *tomark,
             OP   *retop	=   (OP *)*(stack_base + cx->blk_oldsp+3);
             DEBUG_printf("\tretop=%p mark=%s\n", retop, tomark);
             if (0 == strcmp(mark,tomark)) {
-                DEBUG_printf("\tFOUND retop=%p mark=%s\n", retop, tomark);
+                DEBUG_printf("\tMARK '%s' FOUND RETOP='%p'\n", tomark, retop);
                 *outRetop = retop;
                 *outIx    = i;
                 return 1;
             }
         }
     }
+    DEBUG_printf("\tMARK '%s' NOT FOUND\n",tomark);
     return 0;
 }
 
