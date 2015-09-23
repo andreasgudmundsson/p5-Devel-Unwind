@@ -19,14 +19,14 @@ eval {
                 say "in FOO: or do";
             };
         } or do {
-            say "this do block should never be executed"; # [B]
+            say "this do block should never be executed: error='$@'"; # [B]
         };
         say "last in FOO: mark";
     };
     say "in last eval";
     die  "from last eval"; # [C]
 } or do {
-    print "or do $@";
+    say "or do $@";
 };
 say "last thing in program";
 

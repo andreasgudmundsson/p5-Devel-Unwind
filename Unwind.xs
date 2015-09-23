@@ -1,4 +1,5 @@
 /*
+
 This second attempt at unwinding is based on the idea that unwinding
 between stacks (MAIN,SIGNAL,REQUIRE,...)  is hard and *I* don't know
 how to do it but Perl does.
@@ -19,14 +20,15 @@ unwindOP unwinds the current stack until it finds the mark
 
 static void _deb_stack(pTHX);
 static void _deb_env(pTHX);
+static void _deb_cx(pTHX);
 static void _cx_dump(pTHX_ PERL_CONTEXT *cx);
 
 #undef cx_dump
 #define cx_dump(x) _cx_dump(aTHX_ x)
+#define deb_cx(x) _deb_cx(aTHX_ x)
 #define deb_stack() _deb_stack(aTHX)
 #define deb_env() _deb_env(aTHX)
 
-#define UNWIND_DEBUG
 #ifdef UNWIND_DEBUG
 #define DEBUG_printf(...) PerlIO_printf(PerlIO_stderr(), ##__VA_ARGS__)
 #else
@@ -79,10 +81,40 @@ static OP *_mark_pp(pTHX)
 static OP* _erase_pp(pTHX)
 {
     dSP;
+    char *mark = cPVOPx(PL_op)->op_pv;
+
     DEBUG_printf("_erase_pp\n");
-    POPs; // retop
-    POPs; // label
-    POPs; // BREADCRUMB
+
+    DEBUG_printf("_erase_pp: unwinding stack to mark='%s' retop='%p'\n", mark, PL_op);
+    deb_stack();
+    deb_cx();
+    {
+        OP  *mark_retop;
+        I32  mark_cxix;
+        if (!_find_mark(aTHX_ PL_curstackinfo, mark, &mark_retop, &mark_cxix)) {
+            croak("PANIC: _erase_pp - mark '%s' not found.", mark);
+        }
+        dounwind(mark_cxix);
+
+    {
+        SV   *what;
+        char *m;
+        char *b;
+        OP   *r;
+
+        what = POPs;
+        r = (OP *)POPs; // retop
+        m = (char *)POPs; // label
+        b = (char *)POPs; // BREADCRUMB
+        DEBUG_printf("_erase_pp: what=='%p' retop='%p', mark='%s' breadcrumb='%s'\n",
+                     what, r, m, b);
+    }
+
+        DEBUG_printf("_erase_pp: after unwinding:\n");
+        deb_stack();
+        deb_cx();
+    }
+
     RETURN;
 }
 
@@ -156,6 +188,14 @@ _find_mark(pTHX_ const PERL_SI *stackinfo, char *tomark,
         PERL_CONTEXT *cx         = &(stackinfo->si_cxstack[i]);
         SV          **stack_base = AvARRAY(stackinfo->si_stack);
         char         *breadcrumb = (char *)*(stack_base + cx->blk_oldsp+1);
+        /*
+          I don't completely understand why the breadcrumb is not at
+          stack_base + cx->blk_oldsp.
+
+          I could have created my own CXt_MARK that stores the old
+          stack pointers and the retop. But that's outside the scope
+          of XS.
+        */
 
         DEBUG_printf("\t%d%s    %d%s     %d%s\n",
                      cx->blk_oldsp, ((char *)(*(stack_base + cx->blk_oldsp+1)) == BREADCRUMB ? "X" : ""),
@@ -225,7 +265,7 @@ mark_keyword_plugin(pTHX_
         mark = newPVOP(OP_CUSTOM, 0, label);
         mark->op_ppaddr = _mark_pp;
 
-        erase = newOP(OP_CUSTOM, 0);
+        erase = newPVOP(OP_CUSTOM, 0, label);
         erase->op_ppaddr = _erase_pp;
 
 
@@ -299,6 +339,17 @@ static void _deb_stack(pTHX) {
   }
 #else
   PERL_UNUSED_CONTEXT;
+#endif
+}
+
+static void _deb_cx(pTHX)
+{
+#ifdef UNWIND_DEBUG
+    dVAR;
+    I32 i;
+    for (i = PL_curstackinfo->si_cxix; i >= 0; i--) {
+        cx_dump(&PL_curstackinfo->si_cxstack[i]);
+    }
 #endif
 }
 
