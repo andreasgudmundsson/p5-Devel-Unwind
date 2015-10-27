@@ -18,42 +18,19 @@ unwindOP unwinds the current stack until it finds the mark
 #include "perl.h"
 #include "XSUB.h"
 
-static void _deb_stack(pTHX);
-static void _deb_env(pTHX);
-static void _deb_cx(pTHX);
-static void _cx_dump(pTHX_ PERL_CONTEXT *cx);
-
-#undef cx_dump
-#define cx_dump(x) _cx_dump(aTHX_ x)
-#define deb_cx(x) _deb_cx(aTHX_ x)
-#define deb_stack() _deb_stack(aTHX)
-#define deb_env() _deb_env(aTHX)
-
-#ifdef UNWIND_DEBUG
-#define DEBUG_printf(...) PerlIO_printf(PerlIO_stderr(), ##__VA_ARGS__)
-#else
-#define DEBUG_printf(...)
-#endif
+#include "unwind_debug.h"
 
 static XOP mark_xop;
 static XOP erase_xop;
 static XOP unwind_xop;
 static int (*next_keyword_plugin)(pTHX_ char *, STRLEN, OP **);
 
-static int _find_mark(pTHX_ const PERL_SI *, char *, OP **, I32 *);
-static int _find_eval(pTHX_ const PERL_SI *, I32 *);
+static int find_mark(pTHX_ const PERL_SI *, char *, OP **, I32 *);
+static int find_eval(pTHX_ const PERL_SI *, I32 *);
 
 static char *BREADCRUMB = "666 number of the beast";
 
-
-static const char * const si_names[] =
-{
-    "UNKNOWN","UNDEF","MAIN","MAGIC",
-    "SORT","SIGNAL","OVERLOAD","DESTROY",
-    "WARNHOOK","DIEHOOK","REQUIRE"
-};
-
-static OP *_mark_pp(pTHX)
+static OP *mark_pp(pTHX)
 {
     dVAR; dSP;
     DEBUG_printf("label(%s): cur(%p)->sibling(%p)->sibling(%p)-> next(%p)\n",
@@ -66,11 +43,6 @@ static OP *_mark_pp(pTHX)
     char *label = cPVOPx(PL_op)->op_pv;
     OP   *retop = PL_op->op_sibling->op_sibling;
 
-    /*
-      I probably need the push jumpenv magic
-      from call_sv
-     */
-
     XPUSHs((SV*)BREADCRUMB);
     XPUSHs((SV*)label);
     XPUSHs((SV*)retop);
@@ -78,12 +50,10 @@ static OP *_mark_pp(pTHX)
     RETURN;
 }
 
-static OP* _erase_pp(pTHX)
+static OP* erase_pp(pTHX)
 {
     dSP;
     char *mark = cPVOPx(PL_op)->op_pv;
-
-    DEBUG_printf("_erase_pp\n");
 
     DEBUG_printf("_erase_pp: unwinding stack to mark='%s' retop='%p'\n", mark, PL_op);
     deb_stack();
@@ -91,7 +61,7 @@ static OP* _erase_pp(pTHX)
     {
         OP  *mark_retop;
         I32  mark_cxix;
-        if (!_find_mark(aTHX_ PL_curstackinfo, mark, &mark_retop, &mark_cxix)) {
+        if (!find_mark(aTHX_ PL_curstackinfo, mark, &mark_retop, &mark_cxix)) {
             croak("PANIC: _erase_pp - mark '%s' not found.", mark);
         }
         dounwind(mark_cxix);
@@ -118,7 +88,7 @@ static OP* _erase_pp(pTHX)
     RETURN;
 }
 
-static OP* _detour_pp(pTHX)
+static OP* detour_pp(pTHX)
 {
     dVAR;
     dSP;
@@ -137,7 +107,7 @@ static OP* _detour_pp(pTHX)
             I32  eval_cxix;
 
             for (si = PL_curstackinfo; si; si = si->si_prev) {
-                if (_find_mark(aTHX_ si, mark, &mark_retop, &mark_cxix)) break;
+                if (find_mark(aTHX_ si, mark, &mark_retop, &mark_cxix)) break;
             }
 
             if (!mark_retop) {
@@ -145,7 +115,7 @@ static OP* _detour_pp(pTHX)
             } else {
                 DEBUG_printf("Mark%s on the current stack\n",
                              si == PL_curstackinfo ? "" : " not");
-                if (!_find_eval(si, &eval_cxix)) {
+                if (!find_eval(si, &eval_cxix)) {
                     DEBUG_printf("Didn't find an 'EVAL' context. WTF?");
                 } else {
                     DEBUG_printf("patching with mark_retop\n");
@@ -157,9 +127,9 @@ static OP* _detour_pp(pTHX)
     RETURN;
 }
 
-static int _find_eval(pTHX_
-                      const PERL_SI *stackinfo,
-                      I32 *outIx)
+static int find_eval(pTHX_
+                     const PERL_SI *stackinfo,
+                     I32 *outIx)
 {
     dVAR;
     I32 i;
@@ -169,7 +139,7 @@ static int _find_eval(pTHX_
 	default:
 	    continue;
 	case CXt_EVAL:
-	    DEBUG_printf("(dopoptoeval(): found eval at cx=%ld)\n", (long)i);
+	    DEBUG_printf("(find_eval(): found eval at cx=%ld)\n", (long)i);
             *outIx = i;
 	    return 1;
 	}
@@ -178,7 +148,7 @@ static int _find_eval(pTHX_
 }
 
 static int
-_find_mark(pTHX_ const PERL_SI *stackinfo, char *tomark,
+find_mark(pTHX_ const PERL_SI *stackinfo, char *tomark,
            OP **outRetop, I32 *outIx)
 {
     I32 i;
@@ -263,10 +233,10 @@ mark_keyword_plugin(pTHX_
         block = _parse_block(aTHX);
 
         mark = newPVOP(OP_CUSTOM, 0, label);
-        mark->op_ppaddr = _mark_pp;
+        mark->op_ppaddr = mark_pp;
 
         erase = newPVOP(OP_CUSTOM, 0, label);
-        erase->op_ppaddr = _erase_pp;
+        erase->op_ppaddr = erase_pp;
 
 
         mark->op_sibling = block;
@@ -285,7 +255,7 @@ mark_keyword_plugin(pTHX_
 
         label  = _parse_label(aTHX);
         detour = newPVOP(OP_CUSTOM, 0, label);
-        detour->op_ppaddr = _detour_pp;
+        detour->op_ppaddr = detour_pp;
 
         *op_ptr = detour;
 
@@ -296,190 +266,23 @@ mark_keyword_plugin(pTHX_
     }
 }
 
-static void _deb_env(pTHX) {
-#ifdef UNWIND_DEBUG
-    const JMPENV *env = PL_top_env;
-    const JMPENV *eit;
-    I32 eix;
-    I32 eix_max;
-
-    for (eix_max= -1, eit=env; eit; eit=eit->je_prev, eix_max++);
-    warn("env: eix_max=%d\n",eix_max);
-    for (eix=0, eit=env; eit; eit=eit->je_prev,eix++) {
-        warn("\tlevel=%d je_ret=%d je_mustcatch=%d\n",
-             eix_max - eix,
-             eit->je_ret,
-             eit->je_mustcatch
-            );
-    }
-#else
-    PERL_UNUSED_CONTEXT;
-#endif
-}
-
-static void _deb_stack(pTHX) {
-#ifdef UNWIND_DEBUG
-  const PERL_SI *si = PL_curstackinfo;
-  I32 siix;
-  while (si->si_prev) {
-    si = si->si_prev;
-  }
-  for (siix = 0; si; si = si->si_next, siix++) {
-    I32 cxix;
-    warn("stack %d type %s(%d) %p\n",
-         siix, si_names[si->si_type + 1], si->si_type, si);
-    for (cxix = 0; cxix <= si->si_cxix; cxix++) {
-      const PERL_CONTEXT* const cx = &(si->si_cxstack[cxix]);
-      warn("\tcxix %d type %s(%d)\n",
-           cxix, PL_block_type[CxTYPE(cx)], CxTYPE(cx));
-    }
-    if (si == PL_curstackinfo) {
-      break;
-    }
-  }
-#else
-  PERL_UNUSED_CONTEXT;
-#endif
-}
-
-static void _deb_cx(pTHX)
-{
-#ifdef UNWIND_DEBUG
-    dVAR;
-    I32 i;
-    for (i = PL_curstackinfo->si_cxix; i >= 0; i--) {
-        cx_dump(&PL_curstackinfo->si_cxstack[i]);
-    }
-#endif
-}
-
-void _cx_dump(pTHX_ PERL_CONTEXT *cx)
-{
-    dVAR;
-
-    PERL_ARGS_ASSERT_CX_DUMP;
-
-#ifdef UNWIND_DEBUG
-    PerlIO_printf(Perl_debug_log, "CX %ld = %s\n", (long)(cx - cxstack), PL_block_type[CxTYPE(cx)]);
-    if (CxTYPE(cx) != CXt_SUBST) {
-	PerlIO_printf(Perl_debug_log, "BLK_OLDSP = %ld\n", (long)cx->blk_oldsp);
-	PerlIO_printf(Perl_debug_log, "BLK_OLDCOP = 0x%"UVxf"\n",
-		      PTR2UV(cx->blk_oldcop));
-	PerlIO_printf(Perl_debug_log, "BLK_OLDMARKSP = %ld\n", (long)cx->blk_oldmarksp);
-	PerlIO_printf(Perl_debug_log, "BLK_OLDSCOPESP = %ld\n", (long)cx->blk_oldscopesp);
-	PerlIO_printf(Perl_debug_log, "BLK_OLDPM = 0x%"UVxf"\n",
-		      PTR2UV(cx->blk_oldpm));
-	PerlIO_printf(Perl_debug_log, "BLK_GIMME = %s\n", cx->blk_gimme ? "LIST" : "SCALAR");
-    }
-    switch (CxTYPE(cx)) {
-    case CXt_NULL:
-    case CXt_BLOCK:
-	break;
-    case CXt_FORMAT:
-	PerlIO_printf(Perl_debug_log, "BLK_FORMAT.CV = 0x%"UVxf"\n",
-		PTR2UV(cx->blk_format.cv));
-	PerlIO_printf(Perl_debug_log, "BLK_FORMAT.GV = 0x%"UVxf"\n",
-		PTR2UV(cx->blk_format.gv));
-	PerlIO_printf(Perl_debug_log, "BLK_FORMAT.DFOUTGV = 0x%"UVxf"\n",
-		PTR2UV(cx->blk_format.dfoutgv));
-	PerlIO_printf(Perl_debug_log, "BLK_FORMAT.HASARGS = %d\n",
-		      (int)CxHASARGS(cx));
-	PerlIO_printf(Perl_debug_log, "BLK_FORMAT.RETOP = 0x%"UVxf"\n",
-		PTR2UV(cx->blk_format.retop));
-	break;
-    case CXt_SUB:
-	PerlIO_printf(Perl_debug_log, "BLK_SUB.CV = 0x%"UVxf"\n",
-		PTR2UV(cx->blk_sub.cv));
-	PerlIO_printf(Perl_debug_log, "BLK_SUB.OLDDEPTH = %ld\n",
-		(long)cx->blk_sub.olddepth);
-	PerlIO_printf(Perl_debug_log, "BLK_SUB.HASARGS = %d\n",
-		(int)CxHASARGS(cx));
-	PerlIO_printf(Perl_debug_log, "BLK_SUB.LVAL = %d\n", (int)CxLVAL(cx));
-	PerlIO_printf(Perl_debug_log, "BLK_SUB.RETOP = 0x%"UVxf"\n",
-		PTR2UV(cx->blk_sub.retop));
-	break;
-    case CXt_EVAL:
-	PerlIO_printf(Perl_debug_log, "BLK_EVAL.OLD_IN_EVAL = %ld\n",
-		(long)CxOLD_IN_EVAL(cx));
-	PerlIO_printf(Perl_debug_log, "BLK_EVAL.OLD_OP_TYPE = %s (%s)\n",
-		PL_op_name[CxOLD_OP_TYPE(cx)],
-		PL_op_desc[CxOLD_OP_TYPE(cx)]);
-	if (cx->blk_eval.old_namesv)
-	    PerlIO_printf(Perl_debug_log, "BLK_EVAL.OLD_NAME = %s\n",
-			  SvPVX_const(cx->blk_eval.old_namesv));
-	PerlIO_printf(Perl_debug_log, "BLK_EVAL.OLD_EVAL_ROOT = 0x%"UVxf"\n",
-		PTR2UV(cx->blk_eval.old_eval_root));
-	PerlIO_printf(Perl_debug_log, "BLK_EVAL.RETOP = 0x%"UVxf"\n",
-		PTR2UV(cx->blk_eval.retop));
-	break;
-
-    case CXt_LOOP_LAZYIV:
-    case CXt_LOOP_LAZYSV:
-    case CXt_LOOP_FOR:
-    case CXt_LOOP_PLAIN:
-	PerlIO_printf(Perl_debug_log, "BLK_LOOP.LABEL = %s\n", CxLABEL(cx));
-	PerlIO_printf(Perl_debug_log, "BLK_LOOP.RESETSP = %ld\n",
-		(long)cx->blk_loop.resetsp);
-	PerlIO_printf(Perl_debug_log, "BLK_LOOP.MY_OP = 0x%"UVxf"\n",
-		PTR2UV(cx->blk_loop.my_op));
-	/* XXX: not accurate for LAZYSV/IV */
-	PerlIO_printf(Perl_debug_log, "BLK_LOOP.ITERARY = 0x%"UVxf"\n",
-		PTR2UV(cx->blk_loop.state_u.ary.ary));
-	PerlIO_printf(Perl_debug_log, "BLK_LOOP.ITERIX = %ld\n",
-		(long)cx->blk_loop.state_u.ary.ix);
-	PerlIO_printf(Perl_debug_log, "BLK_LOOP.ITERVAR = 0x%"UVxf"\n",
-		PTR2UV(CxITERVAR(cx)));
-	break;
-
-    case CXt_SUBST:
-	PerlIO_printf(Perl_debug_log, "SB_ITERS = %ld\n",
-		(long)cx->sb_iters);
-	PerlIO_printf(Perl_debug_log, "SB_MAXITERS = %ld\n",
-		(long)cx->sb_maxiters);
-	PerlIO_printf(Perl_debug_log, "SB_RFLAGS = %ld\n",
-		(long)cx->sb_rflags);
-	PerlIO_printf(Perl_debug_log, "SB_ONCE = %ld\n",
-		(long)CxONCE(cx));
-	PerlIO_printf(Perl_debug_log, "SB_ORIG = %s\n",
-		cx->sb_orig);
-	PerlIO_printf(Perl_debug_log, "SB_DSTR = 0x%"UVxf"\n",
-		PTR2UV(cx->sb_dstr));
-	PerlIO_printf(Perl_debug_log, "SB_TARG = 0x%"UVxf"\n",
-		PTR2UV(cx->sb_targ));
-	PerlIO_printf(Perl_debug_log, "SB_S = 0x%"UVxf"\n",
-		PTR2UV(cx->sb_s));
-	PerlIO_printf(Perl_debug_log, "SB_M = 0x%"UVxf"\n",
-		PTR2UV(cx->sb_m));
-	PerlIO_printf(Perl_debug_log, "SB_STREND = 0x%"UVxf"\n",
-		PTR2UV(cx->sb_strend));
-	PerlIO_printf(Perl_debug_log, "SB_RXRES = 0x%"UVxf"\n",
-		PTR2UV(cx->sb_rxres));
-	break;
-    }
-#else
-    PERL_UNUSED_CONTEXT;
-    PERL_UNUSED_ARG(cx);
-#endif	/* DEBUGGING */
-}
-
-
 MODULE = Stack::Unwind PACKAGE = Stack::Unwind
 
 BOOT:
     XopENTRY_set(&mark_xop, xop_name,  "mark_xop");
     XopENTRY_set(&mark_xop, xop_desc,  "mark the stack for unwinding");
     XopENTRY_set(&mark_xop, xop_class, OA_PVOP_OR_SVOP);
-    Perl_custom_op_register(aTHX_ _mark_pp, &mark_xop);
+    Perl_custom_op_register(aTHX_ mark_pp, &mark_xop);
 
     XopENTRY_set(&erase_xop, xop_name,  "erase_xop");
     XopENTRY_set(&erase_xop, xop_desc,  "erase the mark");
     XopENTRY_set(&erase_xop, xop_class, OA_UNOP);
-    Perl_custom_op_register(aTHX_ _erase_pp, &erase_xop);
+    Perl_custom_op_register(aTHX_ erase_pp, &erase_xop);
 
     XopENTRY_set(&unwind_xop, xop_name,  "unwind");
     XopENTRY_set(&unwind_xop, xop_desc,  "unwind the stack to the mark");
     XopENTRY_set(&unwind_xop, xop_class, OA_PVOP_OR_SVOP);
-    Perl_custom_op_register(aTHX_ _detour_pp, &unwind_xop);
+    Perl_custom_op_register(aTHX_ detour_pp, &unwind_xop);
 
     next_keyword_plugin =  PL_keyword_plugin;
     PL_keyword_plugin   = mark_keyword_plugin;
