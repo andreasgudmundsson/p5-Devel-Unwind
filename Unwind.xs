@@ -139,7 +139,7 @@ static OP* detour_pp(pTHX)
      * REQUIRE handling done by die_unwind(), I suppose patching
      * 2-levels of eval context will do the trick. If I do that then
      * we can be lazy and transform
-     *  mark LABEL: BLOCK -> mark LABEL: eval{eval{ BLOCK }}
+     *  mark LABEL: BLOCK -> mark' LABEL: eval{eval{ BLOCK }}
      *
      * or be smart and somehow figure out that we're in an require so
      * there must already be 2 eval contexts on the stack.
