@@ -72,11 +72,18 @@ static OP* erase_pp(pTHX)
         char *b;
         OP   *r;
 
+        /*
+          This seems like an extra POP,
+          is it related to the fact that
+          find_mark gets to the breadcrumb at
+               (char *)*(stack_base + cx->blk_oldsp+1);
+         */
         what = POPs;
+
         r = (OP *)POPs; // retop
         m = (char *)POPs; // label
         b = (char *)POPs; // BREADCRUMB
-        DEBUG_printf("_erase_pp: what=='%p' retop='%p', mark='%s' breadcrumb='%s'\n",
+        DEBUG_printf("_erase_pp: what='%p', retop='%p' label='%s', breadcrumb='%s'\n",
                      what, r, m, b);
     }
 
