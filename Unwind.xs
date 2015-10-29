@@ -26,7 +26,7 @@ static XOP unwind_xop;
 static int (*next_keyword_plugin)(pTHX_ char *, STRLEN, OP **);
 
 static int find_mark(pTHX_ const PERL_SI *, char *, OP **, I32 *);
-static int find_eval(pTHX_ const PERL_SI *, I32 *);
+static int find_eval(pTHX_ const PERL_SI *, I32 *, I32 *);
 
 static char *BREADCRUMB = "666 number of the beast";
 
@@ -111,7 +111,8 @@ static OP* detour_pp(pTHX)
             OP *mark_retop = NULL;
             const PERL_SI *si;
             I32  mark_cxix;
-            I32  eval_cxix;
+            I32  eval_cxix_first;
+            I32  eval_cxix_second;
 
             for (si = PL_curstackinfo; si; si = si->si_prev) {
                 if (find_mark(aTHX_ si, mark, &mark_retop, &mark_cxix)) break;
@@ -122,11 +123,12 @@ static OP* detour_pp(pTHX)
             } else {
                 DEBUG_printf("Mark%s on the current stack\n",
                              si == PL_curstackinfo ? "" : " not");
-                if (!find_eval(si, &eval_cxix)) {
+                if (!find_eval(si, &eval_cxix_first, &eval_cxix_second)) {
                     DEBUG_printf("Didn't find an 'EVAL' context. WTF?");
                 } else {
                     DEBUG_printf("patching with mark_retop\n");
-                    si->si_cxstack[eval_cxix].blk_eval.retop = mark_retop;
+                    si->si_cxstack[eval_cxix_first].blk_eval.retop  = mark_retop;
+                    si->si_cxstack[eval_cxix_second].blk_eval.retop = mark_retop;
                 }
             }
         }
@@ -147,9 +149,10 @@ static OP* detour_pp(pTHX)
 
 static int find_eval(pTHX_
                      const PERL_SI *stackinfo,
-                     I32 *outIx)
+                     I32 *outIx, I32 *outIx2)
 {
     dVAR;
+    I32 ix = 0;
     I32 i;
     for (i = stackinfo->si_cxix; i >= 0; i--) {
 	PERL_CONTEXT *cx = &(stackinfo->si_cxstack[i]);
@@ -158,8 +161,15 @@ static int find_eval(pTHX_
 	    continue;
 	case CXt_EVAL:
 	    DEBUG_printf("(find_eval(): found eval at cx=%ld)\n", (long)i);
-            *outIx = i;
-	    return 1;
+            if (ix == 0) {
+                *outIx = i;
+            } else if (ix == 1) {
+                *outIx2 = i;
+            }
+            if (ix == 1) {
+                return 1;
+            }
+            ix++;
 	}
     }
     return 0;
