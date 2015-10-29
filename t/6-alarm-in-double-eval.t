@@ -7,7 +7,6 @@ use Time::HiRes qw(alarm sleep);
 
 $SIG{ALRM} = sub {
     unwind FOO:;
-    die;
 };
 
 eval {

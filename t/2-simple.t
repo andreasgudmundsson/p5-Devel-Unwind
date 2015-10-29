@@ -7,7 +7,6 @@ use Stack::Unwind 'unwind';
 mark TOPLEVEL: {
     eval {
         unwind TOPLEVEL:;
-        die;
         fail "Execution after die";
         1;
     } or do {

@@ -7,7 +7,6 @@ use Stack::Unwind;
 
 sub unwind {
     unwind FOO:;
-    die;
 }
 
 1;

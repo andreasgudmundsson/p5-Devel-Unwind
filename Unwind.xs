@@ -131,7 +131,18 @@ static OP* detour_pp(pTHX)
             }
         }
     }
-    RETURN;
+    /* Unwinding from an require i.e. from the toplevel of a required
+     * file needs special handling.  If we rely on die() to initiate
+     * the unwinding mechanism then we must counteract the special
+     * REQUIRE handling done by die_unwind(), I suppose patching
+     * 2-levels of eval context will do the trick. If I do that then
+     * we can be lazy and transform
+     *  mark LABEL: BLOCK -> mark LABEL: eval{eval{ BLOCK }}
+     *
+     * or be smart and somehow figure out that we're in an require so
+     * there must already be 2 eval contexts on the stack.
+     */
+    die("Unwinding from detour_pp. It leaks.");
 }
 
 static int find_eval(pTHX_

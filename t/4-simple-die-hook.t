@@ -6,7 +6,6 @@ use Stack::Unwind;
 
 $SIG{__DIE__} = sub {
     unwind FOO:;
-    die " from die handler";
 };
 
 mark FOO: {

@@ -8,7 +8,6 @@ mark FOO: {
     eval {
         my @a = sort {
             unwind FOO:;
-            die;
         } qw/a b c d/;
         fail "Execution resumes in eval";
         1;
