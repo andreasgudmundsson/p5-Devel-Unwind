@@ -293,8 +293,3 @@ BOOT:
 
     next_keyword_plugin =  PL_keyword_plugin;
     PL_keyword_plugin   = mark_keyword_plugin;
-
-
-void unwind_old(char *s)
-    CODE:
-     _unwind(aTHX_ s);
