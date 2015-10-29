@@ -7,10 +7,8 @@ use Stack::Unwind;
 
 my $x = 'foo';
 mark LABEL: {
-    eval {
-        unwind LABEL:;
-        die;
-        $x = 'bar';
-    }
+    unwind LABEL:;
+    die;
+    $x = 'bar';
 }
 is($x,'foo', 'Variable correctly set after mark block');

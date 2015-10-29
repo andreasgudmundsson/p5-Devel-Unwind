@@ -195,16 +195,39 @@ find_mark(pTHX_ const PERL_SI *stackinfo, char *tomark,
     return 0;
 }
 
+
+static OP*
+create_eval(pTHX_ OP *block) {
+    OP    *o;
+    LOGOP *enter;
+
+    /*
+      Shamelessly copied from Perl_ck_eval
+     */
+
+    NewOp(1101, enter, 1, LOGOP);
+    enter->op_type = OP_ENTERTRY;
+    enter->op_ppaddr = PL_ppaddr[OP_ENTERTRY];
+    enter->op_private = 0;
+
+    o = op_prepend_elem(OP_LINESEQ, (OP*)enter, (OP*)block);
+    o->op_type = OP_LEAVETRY;
+    o->op_ppaddr = PL_ppaddr[OP_LEAVETRY];
+    enter->op_other = o;
+
+    return o;
+}
+
 static OP *_parse_block(pTHX)
 {
     OP *o = parse_block(0);
     if (!o) {
         o = newOP(OP_STUB, 0);
     }
-    if (PL_hints & HINT_BLOCK_SCOPE) {
-        o->op_flags |= OPf_PARENS;
-    }
-    return op_scope(o);
+    /*
+     * Do I need to set any flags?
+     */
+    return create_eval(o);
 }
 
 static char *_parse_label(pTHX) {
@@ -233,24 +256,35 @@ mark_keyword_plugin(pTHX_
     if (keyword_len == 4 && strnEQ(keyword_ptr, "mark", 4))  {
         char *label;
         OP   *mark;
-        OP   *block;
+        OP   *eval_block;
         OP   *erase;
 
-        label = _parse_label(aTHX);
-        block = _parse_block(aTHX);
+        /*
+          Transform
+             mark LABEL: BLOCK
+          to
+             mark' LABEL: { eval BLOCK }
+
+          because the unwinding mechanism relies on patching the "next"
+          eval context.
+         */
+
+        label      = _parse_label(aTHX);
+        eval_block = _parse_block(aTHX);
 
         mark = newPVOP(OP_CUSTOM, 0, label);
         mark->op_ppaddr = mark_pp;
 
+        DEBUG_printf("mark(%p)->eval(%p)->erase(%p)\n", mark, eval_block, erase);
+
         erase = newPVOP(OP_CUSTOM, 0, label);
         erase->op_ppaddr = erase_pp;
 
-
-        mark->op_sibling = block;
-        block->op_sibling = erase;
+        mark->op_sibling = eval_block;
+        eval_block->op_sibling = erase;
         erase->op_sibling = NULL;
 
-        DEBUG_printf("mark(%p)->block(%p)->erase(%p)\n", mark, block, erase);
+        DEBUG_printf("mark(%p)->eval(%p)->erase(%p)\n", mark, eval_block, erase);
 
         *op_ptr = newLISTOP(OP_NULL, 0, mark, erase->op_sibling);
 
