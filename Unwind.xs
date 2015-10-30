@@ -248,7 +248,7 @@ static OP *_parse_block(pTHX)
     /*
      * Do I need to set any flags?
      */
-    return create_eval(o);
+    return o;
 }
 
 static char *_parse_label(pTHX) {
@@ -284,14 +284,14 @@ mark_keyword_plugin(pTHX_
           Transform
              mark LABEL: BLOCK
           to
-             mark' LABEL: { eval BLOCK }
+             mark' LABEL: { eval { eval BLOCK } }
 
           because the unwinding mechanism relies on patching the "next"
-          eval context.
+          eval context, or in the case of a request the second to next.
          */
 
         label      = _parse_label(aTHX);
-        eval_block = _parse_block(aTHX);
+        eval_block = create_eval(aTHX_ create_eval(aTHX_ _parse_block(aTHX)));
 
         mark = newPVOP(OP_CUSTOM, 0, label);
         mark->op_ppaddr = mark_pp;
