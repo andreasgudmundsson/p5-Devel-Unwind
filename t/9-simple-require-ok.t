@@ -4,6 +4,8 @@ use warnings;
 use Test::More;
 use Stack::Unwind;
 
+use lib 't/lib';
+
 mark FOO: {
     eval {
         require "required_unwind_ok.pm";

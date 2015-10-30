@@ -4,6 +4,7 @@ use warnings;
 use Test::More;
 use Stack::Unwind;
 
+use lib 't/lib';
 use Foobar;
 
 mark FOO: {
