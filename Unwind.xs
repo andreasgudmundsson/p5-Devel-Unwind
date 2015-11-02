@@ -33,7 +33,7 @@ static char *BREADCRUMB = "666 number of the beast";
 static OP *mark_pp(pTHX)
 {
     dVAR; dSP;
-    DEBUG_printf("label(%s): cur(%p)->sibling(%p)->sibling(%p)-> next(%p)\n",
+    DEBUG_printf("mark_pp: label(%s): cur(%p)->sibling(%p)->sibling(%p)-> next(%p)\n",
                  cPVOPx(PL_op)->op_pv,
                  PL_op,
                  PL_op->op_sibling,
@@ -55,7 +55,7 @@ static OP* erase_pp(pTHX)
     dSP;
     char *mark = cPVOPx(PL_op)->op_pv;
 
-    DEBUG_printf("_erase_pp: unwinding stack to mark='%s' retop='%p'\n", mark, PL_op);
+    DEBUG_printf("erase_pp: unwinding stack to mark='%s' retop='%p'\n", mark, PL_op);
     deb_stack();
     deb_cx();
     {
@@ -76,15 +76,15 @@ static OP* erase_pp(pTHX)
           This seems like an extra POP,
           is it related to the fact that
           find_mark gets to the breadcrumb at
-               (char *)*(stack_base + cx->blk_oldsp+1);
+               (char *)*(stack_base + cx->blk_oldsp+1) ?
          */
         what = POPs;
 
         r = (OP *)POPs; // retop
         m = (char *)POPs; // label
         b = (char *)POPs; // BREADCRUMB
-        DEBUG_printf("_erase_pp: what='%p', retop='%p' label='%s', breadcrumb='%s'\n",
-                     what, r, m, b);
+        DEBUG_printf("_erase_pp: what='%p(%s)', retop='%p' label='%s', breadcrumb='%s'\n",
+                     what, (what==&PL_sv_undef ? "PL_sv_undef" : ""), r, m, b);
     }
 
         DEBUG_printf("_erase_pp: after unwinding:\n");
