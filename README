@@ -1,47 +1,12 @@
-
 IDEA
 ----
-Allows you to unwind the stack to a set mark.
+Unwind the stack and resume execution at a predefined
+point somewhere in the dynamic context. I.e. I want to
+"die to a label" from anywhere.
 
-API:
-  mark($id, BLOCK1, BLOCK2)
-  unwind_to_mark($id)
-
-mark($id, BLOCK1, BLOCK2) unconditionally runs BLOCK1 but if BLOCK1
-constains code that does unwind_to_mark($id) then we unwind the stack
-until the scope containing the mark command gets hit then BLOCK2 gets
-executed.
-
-
-Example:
---------
-Prints "1"
-
-mark($expr,{
-         eval {
-             sub {
-                 eval {
-                     sub {
-                         unwind($expr);
-                     }->();
-                     say "0";
-                 }
-             }->()
-           }
-         }
-     }
-     ,
-     {
-         say "1";
-     });
-
-
-FIRST IMPLEMENTATION
---------------------
-mark {
-     eval {
-          sub {
-             unwind;
-          }->()
-     }
+mark FOO {
+     unwind FOO;
 }
+
+Once I've figured this out I'd like to the idea further
+and do a PoC for structured exception handling.
