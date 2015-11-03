@@ -28,7 +28,7 @@ static int (*next_keyword_plugin)(pTHX_ char *, STRLEN, OP **);
 static int find_mark(pTHX_ const PERL_SI *, char *, OP **, I32 *);
 static int find_eval(pTHX_ const PERL_SI *, I32 *, I32 *);
 
-static char *BREADCRUMB = "666 number of the beast";
+static const char * const BREADCRUMB = "666 number of the beast";
 
 static OP *mark_pp(pTHX)
 {
@@ -145,6 +145,7 @@ static OP* detour_pp(pTHX)
      * there must already be 2 eval contexts on the stack.
      */
     die("Unwinding from detour_pp. It leaks.");
+    return NULL; /* not reached */
 }
 
 static int find_eval(pTHX_
@@ -352,6 +353,8 @@ mark_keyword_plugin(pTHX_
 }
 
 MODULE = Stack::Unwind PACKAGE = Stack::Unwind
+
+PROTOTYPES: DISABLE
 
 BOOT:
     XopENTRY_set(&mark_xop, xop_name,  "mark_xop");
