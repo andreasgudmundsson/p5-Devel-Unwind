@@ -123,7 +123,7 @@ static OP* detour_pp(pTHX)
             } else {
                 DEBUG_printf("Mark%s on the current stack\n",
                              si == PL_curstackinfo ? "" : " not");
-                if (!find_eval(si, &eval_cxix_first, &eval_cxix_second)) {
+                if (!find_eval(aTHX_ si, &eval_cxix_first, &eval_cxix_second)) {
                     DEBUG_printf("Didn't find an 'EVAL' context. WTF?");
                 } else {
                     DEBUG_printf("patching with mark_retop\n");
