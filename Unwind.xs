@@ -157,20 +157,14 @@ static int find_eval(pTHX_
     I32 i;
     for (i = stackinfo->si_cxix; i >= 0; i--) {
 	PERL_CONTEXT *cx = &(stackinfo->si_cxstack[i]);
-	switch (CxTYPE(cx)) {
-	default:
-	    continue;
-	case CXt_EVAL:
+	if (CxTYPE(cx) == CXt_EVAL) {
 	    DEBUG_printf("(find_eval(): found eval at cx=%ld)\n", (long)i);
-            if (ix == 0) {
-                *outIx = i;
-            } else if (ix == 1) {
+            if (ix == 0)
+                *outIx  = i;
+            else
                 *outIx2 = i;
-            }
-            if (ix == 1) {
+            if (ix++ == 1)
                 return 1;
-            }
-            ix++;
 	}
     }
     return 0;
