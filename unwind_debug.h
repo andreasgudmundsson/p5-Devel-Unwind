@@ -6,7 +6,7 @@ static inline void _deb_env(pTHX);
 static inline void _deb_cx(pTHX);
 static inline void _cx_dump(pTHX_ PERL_CONTEXT *cx);
 
-#define deb_cx(x) _deb_cx(aTHX_ x)
+#define deb_cx() _deb_cx(aTHX)
 #define deb_stack() _deb_stack(aTHX)
 #define deb_env() _deb_env(aTHX)
 
