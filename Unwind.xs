@@ -319,13 +319,12 @@ mark_keyword_plugin(pTHX_
         erase = newPVOP(OP_CUSTOM, 0, label);
         erase->op_ppaddr = erase_pp;
 
-        mark->op_sibling = eval_block;
+        mark->op_sibling       = eval_block;
         eval_block->op_sibling = erase;
-        erase->op_sibling = NULL;
+        erase->op_sibling      = NULL
 
         DEBUG_printf("mark(%p)->eval(%p)->erase(%p)\n", mark, eval_block, erase);
-
-        *op_ptr = newLISTOP(OP_NULL, 0, mark, erase->op_sibling);
+        *op_ptr = newLISTOP(OP_NULL, 0, mark, NULL);
 
         return KEYWORD_PLUGIN_STMT;
     }
