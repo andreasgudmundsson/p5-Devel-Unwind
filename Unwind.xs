@@ -321,6 +321,14 @@ mark_keyword_plugin(pTHX_
                                                                          _parse_block(aTHX)
                                                                  ))));
 
+        /*
+           newPVOP(OP_CUSTOM,...) fails the following assertions in
+           debug builds
+
+           assert((PL_opargs[type] & OA_CLASS_MASK) == OA_PVOP_OR_SVOP
+               || type == OP_RUNCV
+               || (PL_opargs[type] & OA_CLASS_MASK) == OA_LOOPEXOP);
+         */
         mark = newPVOP(OP_CUSTOM, 0, label);
         mark->op_ppaddr = mark_pp;
 
@@ -334,7 +342,7 @@ mark_keyword_plugin(pTHX_
         erase->op_sibling      = NULL;
 
         DEBUG_printf("mark(%p)->eval(%p)->erase(%p)\n", mark, eval_block, erase);
-        *op_ptr = newLISTOP(OP_NULL, 0, mark, NULL);
+        *op_ptr = newLISTOP(OP_LINESEQ, 0, mark, NULL);
 
         return KEYWORD_PLUGIN_STMT;
     }
