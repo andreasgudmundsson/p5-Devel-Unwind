@@ -31,6 +31,36 @@ static OP *mark_pp(pTHX)
     DEBUG_printf("mark_pp       sp=%p\n", PL_stack_sp);
     DEBUG_printf("mark_pp curstack=%p\n", PL_curstack);
 
+    /*
+      I can skip pushing a BREADCRUMB,LABEL and RETOP if I patch the
+      retop of the labeled eval to be my custom PVOP(LABEL). Then when
+      I search back the stackinfos all I have to find is the first
+      eval with the corresponding CUSTOM PVOP \o/
+
+      1. Transform
+          mark LABEL: {...}
+         into the hypothetical
+          LABEL: eval {...}
+         where the label is stored as
+           blk_eval.retop = newPVOP(OP_CUSTOM, 0, label)
+         and
+           retop.op_ppaddr == erase_pp
+
+      2. In unwind we search for that special eval block
+         and do the following:
+
+           a. POPSTACK_TO(mark_stack)
+           b. dounwind(mark_scope)
+           c. JMPENV_POP until we hit the correct RUNLOOP
+              then die. If we die without popping the jump envs
+              then I think execution will resume in the inner-most
+              run-loop.
+
+              But what happens with PL_delaymagic if we do that??
+              Should be fine see `git log --patch -Gdelaymagic`
+
+     */
+
     XPUSHs(BREADCRUMB);
     XPUSHs(newSVpvn_flags(label, strlen(label), SVs_TEMP));
     XPUSHs((SV*)retop);
@@ -47,40 +77,37 @@ static OP* erase_pp(pTHX)
     deb_stack();
     deb_cx();
     {
-        OP  *mark_retop;
-        I32  mark_cxix;
-        if (!find_mark(aTHX_ PL_curstackinfo, mark, &mark_retop, &mark_cxix)) {
-            croak("PANIC: _erase_pp - mark '%s' not found.", mark);
+        {
+            OP  *mark_retop;
+            I32  mark_cxix;
+            if (!find_mark(aTHX_ PL_curstackinfo, mark, &mark_retop, &mark_cxix)) {
+                croak("PANIC: _erase_pp - mark '%s' not found.", mark);
+            }
+            dounwind(mark_cxix);
         }
-        dounwind(mark_cxix);
+        {
+            SV *what;
+            SV *m;
+            SV *b;
+            OP *r;
 
-    {
-        SV *what;
-        SV *m;
-        SV *b;
-        OP *r;
+            /*
+              dounwind
+            */
+            what = POPs;
 
-        /*
-          This seems like an extra POP,
-          is it related to the fact that
-          find_mark gets to the breadcrumb at
-               (char *)*(stack_base + cx->blk_oldsp+1) ?
-         */
-        what = POPs;
-
-        r = (OP *)POPs; // retop
-        m = POPs; // label
-        b = POPs; // BREADCRUMB
-        DEBUG_printf("_erase_pp: what='%p(%s)', retop='%p' label='%s', breadcrumb='%s'\n",
-                     what, (what==&PL_sv_undef ? "PL_sv_undef" : ""),
-                     r,
-                     SvPVX(m), SvPVX(b));
+            r = (OP *)POPs; // retop
+            m = POPs; // label
+            b = POPs; // BREADCRUMB
+            DEBUG_printf("_erase_pp: what='%p(%s)', retop='%p' label='%s', breadcrumb='%s'\n",
+                         what, (what==&PL_sv_undef ? "PL_sv_undef" : ""),
+                         r,
+                         SvPVX(m), SvPVX(b));
+        }
     }
-
-        DEBUG_printf("_erase_pp: after unwinding:\n");
-        deb_stack();
-        deb_cx();
-    }
+    DEBUG_printf("_erase_pp: after unwinding:\n");
+    deb_stack();
+    deb_cx();
 
     RETURN;
 }
