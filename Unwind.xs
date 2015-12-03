@@ -96,9 +96,9 @@ static OP* erase_pp(pTHX)
             */
             what = POPs;
 
-            r = (OP *)POPs; // retop
-            m = POPs; // label
-            b = POPs; // BREADCRUMB
+            r = (OP *)POPs; /* retop */
+            m = POPs; /* label */
+            b = POPs; /* BREADCRUMB */
             DEBUG_printf("_erase_pp: what='%p(%s)', retop='%p' label='%s', breadcrumb='%s'\n",
                          what, (what==&PL_sv_undef ? "PL_sv_undef" : ""),
                          r,
@@ -115,7 +115,6 @@ static OP* erase_pp(pTHX)
 static OP* detour_pp(pTHX)
 {
     dVAR;
-    dSP;
     {
         char *mark;
         mark = cPVOPx(PL_op)->op_pv;
@@ -198,12 +197,6 @@ find_mark(pTHX_ const PERL_SI *stackinfo, char *tomark,
         PERL_CONTEXT *cx         = &(stackinfo->si_cxstack[i]);
         SV          **stack_base = AvARRAY(stackinfo->si_stack);
         SV           *breadcrumb = *(stack_base + cx->blk_oldsp+1);
-
-        DEBUG_printf("\t%p - %d%s    %d%s     %d%s\n",
-                     stack_base + cx->blk_oldsp,
-                     cx->blk_oldsp, ((char *)(*(stack_base + cx->blk_oldsp+1)) == BREADCRUMB ? "X" : ""),
-                     cx->blk_oldmarksp, ((char *)(*(stack_base + cx->blk_oldmarksp)) == BREADCRUMB ? "X" : ""),
-                     cx->blk_oldscopesp, ((char *)(*(stack_base + cx->blk_oldscopesp)) == BREADCRUMB ? "X" : ""));
 
         if ( breadcrumb == BREADCRUMB) {
             char *mark	= SvPVX(*(stack_base + cx->blk_oldsp+2));
@@ -331,8 +324,6 @@ mark_keyword_plugin(pTHX_
          */
         mark = newPVOP(OP_CUSTOM, 0, label);
         mark->op_ppaddr = mark_pp;
-
-        DEBUG_printf("mark(%p)->eval(%p)->erase(%p)\n", mark, eval_block, erase);
 
         erase = newPVOP(OP_CUSTOM, 0, label);
         erase->op_ppaddr = erase_pp;

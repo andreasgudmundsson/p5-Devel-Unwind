@@ -1,4 +1,3 @@
-use 5.14.2;
 use ExtUtils::MakeMaker;
 
 WriteMakefile(
@@ -7,3 +6,20 @@ WriteMakefile(
     VERSION_FROM => "lib/Stack/Unwind.pm",
     LICENSE => "perl",
 );
+
+# Add -Wall to CCFLAGS without overwriting the defaults
+package MY;
+sub cflags {
+    my $self   = shift;
+    my $cflags = $self->SUPER::cflags(@_);
+    my @cflags = split /\n/, $cflags;
+
+    $self->{CCFLAGS} .= ' -Wall ';
+    $self->{CCFLAGS} .= ' -Wextra';
+    $self->{CCFLAGS} .= ' -std=c89 ';
+
+    foreach (@cflags) {
+        $_ = "CCFLAGS = $self->{CCFLAGS}" if /^CCFLAGS/;
+    }
+    return $self->{CFLAGS} = join("\n", @cflags) . "\n";
+}

@@ -1,20 +1,22 @@
 #ifndef _UNWIND_DEBUG_H_
 #define _UNWIND_DEBUG_H_
 
-static inline void _deb_stack(pTHX);
-static inline void _deb_env(pTHX);
-static inline void _deb_cx(pTHX);
-static inline void _cx_dump(pTHX_ PERL_CONTEXT *cx);
+static void _deb_stack(pTHX);
+static void _deb_env(pTHX);
+static void _deb_cx(pTHX);
 
 #define deb_cx() _deb_cx(aTHX)
 #define deb_stack() _deb_stack(aTHX)
 #define deb_env() _deb_env(aTHX)
 
+static void DEBUG_printf(char *fmt, ...) {
 #ifdef DEBUGGING
-#define DEBUG_printf(...) PerlIO_printf(PerlIO_stderr(), ##__VA_ARGS__)
-#else
-#define DEBUG_printf(...)
+    va_list ap;
+    va_start(ap, fmt);
+    PerlIO_vprintf(PerlIO_stderr(), fmt, ap);
+    va_end(ap);
 #endif
+}
 
 static const char * const si_names[] =
 {
@@ -23,7 +25,7 @@ static const char * const si_names[] =
     "WARNHOOK","DIEHOOK","REQUIRE"
 };
 
-static inline void _deb_env(pTHX) {
+static void _deb_env(pTHX) {
 #ifdef DEBUGGING
     const JMPENV *env = PL_top_env;
     const JMPENV *eit;
@@ -44,7 +46,7 @@ static inline void _deb_env(pTHX) {
 #endif
 }
 
-static inline void _deb_stack(pTHX) {
+static void _deb_stack(pTHX) {
 #ifdef DEBUGGING
   const PERL_SI *si = PL_curstackinfo;
   I32 siix;
@@ -69,9 +71,9 @@ static inline void _deb_stack(pTHX) {
 #endif
 }
 
-static inline void mycx_dump(pTHX_ PERL_CONTEXT *cx);
+static void mycx_dump(pTHX_ PERL_CONTEXT *cx);
 
-static inline void _deb_cx(pTHX)
+static void _deb_cx(pTHX)
 {
 #ifdef DEBUGGING
     dVAR;
@@ -82,7 +84,7 @@ static inline void _deb_cx(pTHX)
 #endif
 }
 
-static inline void
+static void
 mycx_dump(pTHX_ PERL_CONTEXT *cx)
 {
     PERL_ARGS_ASSERT_CX_DUMP;
@@ -204,6 +206,5 @@ mycx_dump(pTHX_ PERL_CONTEXT *cx)
     PERL_UNUSED_ARG(cx);
 #endif	/* DEBUGGING */
 }
-
 
 #endif /* _UNWIND_DEBUG_H_ */
