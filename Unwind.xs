@@ -1,19 +1,3 @@
-/*
-
-This second attempt at unwinding is based on the idea that unwinding
-between stacks (MAIN,SIGNAL,REQUIRE,...)  is hard and *I* don't know
-how to do it but Perl does.
-
-So the plan is to just patch the retop of the current EVAL context
-to return to the relevant unwindOP(LABEL), the unwindOP(LABEL)
-than fixes up the context and resumes execution
-
-main program  : markOP(FOO:) BLOCK unwindOP(FOO:)
-signal handler: detour(FOO:)
-
-unwindOP unwinds the current stack until it finds the mark
-
- */
 #include "EXTERN.h"
 #include "perl.h"
 #include "XSUB.h"
@@ -28,11 +12,12 @@ static int (*next_keyword_plugin)(pTHX_ char *, STRLEN, OP **);
 static int find_mark(pTHX_ const PERL_SI *, char *, OP **, I32 *);
 static int find_eval(pTHX_ const PERL_SI *, I32 *, I32 *);
 
-static const char * const BREADCRUMB = "666 number of the beast";
+static SV *BREADCRUMB;
 
 static OP *mark_pp(pTHX)
 {
     dVAR; dSP;
+
     DEBUG_printf("mark_pp: label(%s): cur(%p)->sibling(%p)->sibling(%p)-> next(%p)\n",
                  cPVOPx(PL_op)->op_pv,
                  PL_op,
@@ -43,8 +28,11 @@ static OP *mark_pp(pTHX)
     char *label = cPVOPx(PL_op)->op_pv;
     OP   *retop = PL_op->op_sibling->op_sibling;
 
-    XPUSHs((SV*)BREADCRUMB);
-    XPUSHs((SV*)label);
+    DEBUG_printf("mark_pp       sp=%p\n", PL_stack_sp);
+    DEBUG_printf("mark_pp curstack=%p\n", PL_curstack);
+
+    XPUSHs(BREADCRUMB);
+    XPUSHs(newSVpvn_flags(label, strlen(label), SVs_TEMP));
     XPUSHs((SV*)retop);
 
     RETURN;
@@ -67,10 +55,10 @@ static OP* erase_pp(pTHX)
         dounwind(mark_cxix);
 
     {
-        SV   *what;
-        char *m;
-        char *b;
-        OP   *r;
+        SV *what;
+        SV *m;
+        SV *b;
+        OP *r;
 
         /*
           This seems like an extra POP,
@@ -81,10 +69,12 @@ static OP* erase_pp(pTHX)
         what = POPs;
 
         r = (OP *)POPs; // retop
-        m = (char *)POPs; // label
-        b = (char *)POPs; // BREADCRUMB
+        m = POPs; // label
+        b = POPs; // BREADCRUMB
         DEBUG_printf("_erase_pp: what='%p(%s)', retop='%p' label='%s', breadcrumb='%s'\n",
-                     what, (what==&PL_sv_undef ? "PL_sv_undef" : ""), r, m, b);
+                     what, (what==&PL_sv_undef ? "PL_sv_undef" : ""),
+                     r,
+                     SvPVX(m), SvPVX(b));
     }
 
         DEBUG_printf("_erase_pp: after unwinding:\n");
@@ -172,7 +162,7 @@ static int find_eval(pTHX_
 
 static int
 find_mark(pTHX_ const PERL_SI *stackinfo, char *tomark,
-           OP **outRetop, I32 *outIx)
+          OP **outRetop, I32 *outIx)
 {
     I32 i;
     DEBUG_printf("find mark '%s' on stack '%s'\n", tomark, si_names[stackinfo->si_type+1]);
@@ -180,23 +170,16 @@ find_mark(pTHX_ const PERL_SI *stackinfo, char *tomark,
     for (i=stackinfo->si_cxix; i >= 0; i--) {
         PERL_CONTEXT *cx         = &(stackinfo->si_cxstack[i]);
         SV          **stack_base = AvARRAY(stackinfo->si_stack);
-        char         *breadcrumb = (char *)*(stack_base + cx->blk_oldsp+1);
-        /*
-          I don't completely understand why the breadcrumb is not at
-          stack_base + cx->blk_oldsp.
+        SV           *breadcrumb = *(stack_base + cx->blk_oldsp+1);
 
-          I could have created my own CXt_MARK that stores the old
-          stack pointers and the retop. But that's outside the scope
-          of XS.
-        */
-
-        DEBUG_printf("\t%d%s    %d%s     %d%s\n",
+        DEBUG_printf("\t%p - %d%s    %d%s     %d%s\n",
+                     stack_base + cx->blk_oldsp,
                      cx->blk_oldsp, ((char *)(*(stack_base + cx->blk_oldsp+1)) == BREADCRUMB ? "X" : ""),
                      cx->blk_oldmarksp, ((char *)(*(stack_base + cx->blk_oldmarksp)) == BREADCRUMB ? "X" : ""),
                      cx->blk_oldscopesp, ((char *)(*(stack_base + cx->blk_oldscopesp)) == BREADCRUMB ? "X" : ""));
 
         if ( breadcrumb == BREADCRUMB) {
-            char *mark	= (char *)*(stack_base + cx->blk_oldsp+2);
+            char *mark	= SvPVX(*(stack_base + cx->blk_oldsp+2));
             OP   *retop	=   (OP *)*(stack_base + cx->blk_oldsp+3);
             DEBUG_printf("\tretop=%p mark=%s\n", retop, tomark);
             if (0 == strcmp(mark,tomark)) {
@@ -321,7 +304,7 @@ mark_keyword_plugin(pTHX_
 
         mark->op_sibling       = eval_block;
         eval_block->op_sibling = erase;
-        erase->op_sibling      = NULL
+        erase->op_sibling      = NULL;
 
         DEBUG_printf("mark(%p)->eval(%p)->erase(%p)\n", mark, eval_block, erase);
         *op_ptr = newLISTOP(OP_NULL, 0, mark, NULL);
@@ -364,6 +347,9 @@ BOOT:
     XopENTRY_set(&unwind_xop, xop_desc,  "unwind the stack to the mark");
     XopENTRY_set(&unwind_xop, xop_class, OA_PVOP_OR_SVOP);
     Perl_custom_op_register(aTHX_ detour_pp, &unwind_xop);
+
+    /* This breadcrumb doesn't get freed. I don't care. */
+    BREADCRUMB = newSVpvs("This is a breadcrumb I use to mark parts of the stack as being owned by this module");
 
     next_keyword_plugin =  PL_keyword_plugin;
     PL_keyword_plugin   = mark_keyword_plugin;
