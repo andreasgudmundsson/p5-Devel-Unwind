@@ -15,6 +15,8 @@ static void DEBUG_printf(char *fmt, ...) {
     va_start(ap, fmt);
     PerlIO_vprintf(PerlIO_stderr(), fmt, ap);
     va_end(ap);
+#else
+    PERL_UNUSED_ARG(fmt);
 #endif
 }
 

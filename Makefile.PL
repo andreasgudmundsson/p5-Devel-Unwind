@@ -16,6 +16,8 @@ sub cflags {
 
     $self->{CCFLAGS} .= ' -Wall ';
     $self->{CCFLAGS} .= ' -Wextra';
+    $self->{CCFLAGS} .= ' -Wno-unused-function';
+    $self->{CCFLAGS} .= ' -Wno-unused-label';
     $self->{CCFLAGS} .= ' -std=c89 ';
 
     foreach (@cflags) {
