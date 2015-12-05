@@ -87,8 +87,14 @@ cleanup_stack:{
         SV *what,*label,*breadcrumb;
         OP *retop;
 
-        what       = POPs;       /* XXX: CODE-SMELL */
-        retop      = (OP *)POPs; /* XXX: CODE-SMELL */
+        /* BUG: dounwind() doesn't reset the SP
+           ------------------------------------
+           What should it if erase_pp is run
+            a. normally
+            b. after unwinding
+         */
+        what       = POPs;
+        retop      = (OP *)POPs;
         label      = POPs;
         breadcrumb = POPs;
 
