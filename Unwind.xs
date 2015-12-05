@@ -73,36 +73,31 @@ static OP* erase_pp(pTHX)
     dSP;
     char *mark = cPVOPx(PL_op)->op_pv;
 
-    DEBUG_printf("erase_pp: unwinding stack to mark='%s' retop='%p'\n", mark, PL_op);
+    DEBUG_printf("erase_pp: unwinding stack to mark='%s' retop='%p'\n",
+                 mark, PL_op);
     deb_stack();
     deb_cx();
     {
         {
             OP  *mark_retop;
             I32  mark_cxix;
-            if (!find_mark(aTHX_ PL_curstackinfo, mark, &mark_retop, &mark_cxix)) {
+            if (!find_mark(aTHX_ PL_curstackinfo,
+                           mark, &mark_retop, &mark_cxix))
                 croak("PANIC: _erase_pp - mark '%s' not found.", mark);
-            }
             dounwind(mark_cxix);
         }
         {
-            SV *what;
-            SV *m;
-            SV *b;
-            OP *r;
+            SV *what,*label,*breadcrumb;
+            OP *retop;
 
-            /*
-              dounwind
-            */
-            what = POPs;
+            what       = POPs;       /* XXX: CODE-SMELL */
+            retop      = (OP *)POPs; /* XXX: CODE-SMELL */
+            label      = POPs;
+            breadcrumb = POPs;
 
-            r = (OP *)POPs; /* retop */
-            m = POPs; /* label */
-            b = POPs; /* BREADCRUMB */
             DEBUG_printf("_erase_pp: what='%p(%s)', retop='%p' label='%s', breadcrumb='%s'\n",
                          what, (what==&PL_sv_undef ? "PL_sv_undef" : ""),
-                         r,
-                         SvPVX(m), SvPVX(b));
+                         retop, SvPVX(label), SvPVX(breadcrumb));
         }
     }
     DEBUG_printf("_erase_pp: after unwinding:\n");
