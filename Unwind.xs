@@ -8,7 +8,7 @@ static XOP label_xop;
 static XOP unwind_xop;
 static int (*next_keyword_plugin)(pTHX_ char *, STRLEN, OP **);
 
-static int find_labeled_eval(pTHX_ const PERL_SI *, char *);
+static int find_mark(pTHX_ const PERL_SI *, SV *);
 
 static OP* label_pp(pTHX)
 {
@@ -24,8 +24,8 @@ static OP* label_pp(pTHX)
 static OP* detour_pp(pTHX)
 {
     dVAR;
-    char *label = cPVOPx(PL_op)->op_pv;;
-    DEBUG_printf("_detour_pp: label(%s)\n", label);
+    SV *label = cSVOPx(PL_op)->op_sv;
+    DEBUG_printf("_detour_pp: label(%s)\n", SvPV_nolen(label));
     if (!PL_in_eval) {
         croak("You must be in an 'eval' to detour execution.");
     }
@@ -34,7 +34,8 @@ static OP* detour_pp(pTHX)
         I32  label_cxix;
 
         for (si = PL_curstackinfo; si; si = si->si_prev) {
-            if ((label_cxix = find_labeled_eval(aTHX_ si, label)) >= 0)
+            label_cxix = find_mark(aTHX_ si, label);
+            if (label_cxix >= 0)
                 break;
         }
         if (label_cxix < 0)
@@ -57,23 +58,24 @@ static OP* detour_pp(pTHX)
 }
 
 static int
-find_labeled_eval(pTHX_ const PERL_SI *stackinfo, char *label)
+find_mark(pTHX_ const PERL_SI *stackinfo, SV *label)
 {
     I32 i;
     DEBUG_printf("find label '%s' on stack '%s'\n",
-                 label, si_names[stackinfo->si_type+1]);
+                 SvPV_nolen(label), si_names[stackinfo->si_type+1]);
     for (i=stackinfo->si_cxix; i >= 0; i--) {
         PERL_CONTEXT *cx = &(stackinfo->si_cxstack[i]);
         OP  *retop = cx->blk_eval.retop;
         if (CxTYPE(cx) == CXt_EVAL && retop && retop->op_ppaddr == label_pp) {
-            assert(cPVOPx(retop)->op_pv);
-            if (!strcmp(label,cPVOPx(retop)->op_pv)) {
-                DEBUG_printf("\tLABEL '%s' FOUND at '%d'\n", label, i);
+            assert(cSVOPx(retop)->op_sv);
+            SV *mark_label = *(av_fetch((AV*)cSVOPx(retop)->op_sv, 0, 0));
+            if (!sv_cmp(label,mark_label)) {
+                DEBUG_printf("\tLABEL '%s' FOUND at '%d'\n", SvPV_nolen(label), i);
                 return i;
             }
         }
     }
-    DEBUG_printf("\tLABEL '%s' NOT FOUND\n",label);
+    DEBUG_printf("\tLABEL '%s' NOT FOUND\n", SvPV_nolen(label));
     return -1;
 }
 
@@ -130,7 +132,7 @@ static OP *_parse_block(pTHX)
     return o;
 }
 
-static char *_parse_label(pTHX) {
+static SV *_parse_label(pTHX) {
     I32 error_count = PL_parser->error_count;
     SV *label       = parse_label(0);
 
@@ -139,9 +141,7 @@ static char *_parse_label(pTHX) {
     else
         DEBUG_printf("Valid label: %s\n", SvPV_nolen(label));
 
-    char *p = savesharedsvpv(label);
-    SvREFCNT_dec(label);
-    return p;
+    return label;
 }
 
 /*
@@ -154,10 +154,10 @@ mark_keyword_plugin(pTHX_
                   OP **op_ptr)
 {
     if (keyword_len == 4 && strnEQ(keyword_ptr, "mark", 4))  {
-        char *label;
-        OP   *eval_block;
-        OP   *label_op;
-
+        OP *eval_block;
+        OP *label_op;
+        AV *label_data;
+        SV *label;
         /*
           Transform
              mark LABEL: BLOCK
@@ -169,11 +169,14 @@ mark_keyword_plugin(pTHX_
           is the retop of the eval block.
          */
 
-        label = _parse_label(aTHX);
+        label      = _parse_label(aTHX);
         eval_block =  create_eval(aTHX_
                                   _parse_block(aTHX));
 
-        label_op = newPVOP(OP_CUSTOM, 0, label);
+        label_data = newAV();
+        av_push(label_data, label); /* later we'll push the JMPENV idx */
+
+        label_op = newSVOP(OP_CUSTOM, 0, (SV*)label_data);
         label_op->op_ppaddr = label_pp;
 
         DEBUG_printf("eval(%p)->erase(%p)\n", eval_block, label_op);
@@ -184,15 +187,9 @@ mark_keyword_plugin(pTHX_
         return KEYWORD_PLUGIN_STMT;
     }
     else if (keyword_len == 6 && strnEQ(keyword_ptr, "unwind", 6)) {
-        char *label;
-        OP   *detour;
-
-        label  = _parse_label(aTHX);
-        detour = newPVOP(OP_CUSTOM, 0, label);
+        OP *detour = newSVOP(OP_CUSTOM, 0, _parse_label(aTHX));
         detour->op_ppaddr = detour_pp;
-
         *op_ptr = detour;
-
         return KEYWORD_PLUGIN_STMT;
     }
     else {
