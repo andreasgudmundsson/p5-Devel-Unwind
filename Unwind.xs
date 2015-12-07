@@ -4,104 +4,17 @@
 
 #include "unwind_debug.h"
 
-static XOP mark_xop;
-static XOP erase_xop;
+static XOP label_xop;
 static XOP unwind_xop;
 static int (*next_keyword_plugin)(pTHX_ char *, STRLEN, OP **);
 
-static int find_mark(pTHX_ const PERL_SI *, char *, OP **, I32 *);
-static int find_eval(pTHX_ const PERL_SI *, I32 *, I32 *);
+static int find_labeled_eval(pTHX_ const PERL_SI *, char *);
 
-static SV *BREADCRUMB;
-
-static OP *mark_pp(pTHX)
-{
-    dVAR; dSP;
-
-    DEBUG_printf("mark_pp: label(%s): cur(%p)->sibling(%p)->sibling(%p)-> next(%p)\n",
-                 cPVOPx(PL_op)->op_pv,
-                 PL_op,
-                 PL_op->op_sibling,
-                 PL_op->op_sibling->op_sibling,
-                 PL_op->op_sibling->op_sibling->op_next);
-
-    char *label = cPVOPx(PL_op)->op_pv;
-    OP   *retop = PL_op->op_sibling->op_sibling;
-
-    DEBUG_printf("mark_pp       sp=%p\n", PL_stack_sp);
-    DEBUG_printf("mark_pp curstack=%p\n", PL_curstack);
-
-    /*
-      I can skip pushing a BREADCRUMB,LABEL and RETOP if I patch the
-      retop of the labeled eval to be my custom PVOP(LABEL). Then when
-      I search back the stackinfos all I have to find is the first
-      eval with the corresponding CUSTOM PVOP \o/
-
-      1. Transform
-          mark LABEL: {...}
-         into the hypothetical
-          LABEL: eval {...}
-         where the label is stored as
-           blk_eval.retop = newPVOP(OP_CUSTOM, 0, label)
-         and
-           retop.op_ppaddr == erase_pp
-
-      2. In unwind we search for that special eval block
-         and do the following:
-
-           a. POPSTACK_TO(mark_stack)
-           b. dounwind(mark_scope)
-           c. JMPENV_POP until we hit the correct RUNLOOP
-              then die. If we die without popping the jump envs
-              then I think execution will resume in the inner-most
-              run-loop.
-
-              But what happens with PL_delaymagic if we do that??
-              Should be fine see `git log --patch -Gdelaymagic`
-
-     */
-
-    XPUSHs(BREADCRUMB);
-    XPUSHs(newSVpvn_flags(label, strlen(label), SVs_TEMP));
-    XPUSHs((SV*)retop);
-
-    RETURN;
-}
-
-static OP* erase_pp(pTHX)
+static OP* label_pp(pTHX)
 {
     dSP;
-    char *mark = cPVOPx(PL_op)->op_pv;
 
-    deb_stack();
-    deb_cx();
-unwind_to_mark_cxt:{
-        OP  *mark_retop;
-        I32  mark_cxix;
-        if (!find_mark(aTHX_ PL_curstackinfo,
-                       mark, &mark_retop, &mark_cxix))
-            croak("PANIC: _erase_pp - mark '%s' not found.", mark);
-        dounwind(mark_cxix);
-        }
-cleanup_stack:{
-        SV *what,*label,*breadcrumb;
-        OP *retop;
-
-        /* BUG: dounwind() doesn't reset the SP
-           ------------------------------------
-           What should it if erase_pp is run
-            a. normally
-            b. after unwinding
-         */
-        what       = POPs;
-        retop      = (OP *)POPs;
-        label      = POPs;
-        breadcrumb = POPs;
-
-        DEBUG_printf("_erase_pp: what='%p(%s)', retop='%p' label='%s', breadcrumb='%s'\n",
-                     what, (what==&PL_sv_undef ? "PL_sv_undef" : ""),
-                     retop, SvPVX(label), SvPVX(breadcrumb));
-    }
+    DEBUG_printf("label_pp\n");
     deb_stack();
     deb_cx();
 
@@ -111,103 +24,57 @@ cleanup_stack:{
 static OP* detour_pp(pTHX)
 {
     dVAR;
-    {
-        char *mark;
-        mark = cPVOPx(PL_op)->op_pv;
-        DEBUG_printf("_detour_pp: mark(%s)\n", mark);
-        if (!PL_in_eval) {
-            croak("You must be in an 'eval' to detour execution.");
-        }
-        deb_stack();
-        {
-            OP *mark_retop = NULL;
-            const PERL_SI *si;
-            I32  mark_cxix;
-            I32  eval_cxix_first;
-            I32  eval_cxix_second;
-
-            for (si = PL_curstackinfo; si; si = si->si_prev) {
-                if (find_mark(aTHX_ si, mark, &mark_retop, &mark_cxix)) break;
-            }
-
-            if (!mark_retop) {
-                croak("Can not setup a detour: mark '%s' not found.", mark );
-            } else {
-                DEBUG_printf("Mark%s on the current stack\n",
-                             si == PL_curstackinfo ? "" : " not");
-                if (!find_eval(aTHX_ si, &eval_cxix_first, &eval_cxix_second)) {
-                    DEBUG_printf("Didn't find an 'EVAL' context. WTF?");
-                } else {
-                    DEBUG_printf("patching with mark_retop\n");
-                    si->si_cxstack[eval_cxix_first].blk_eval.retop  = mark_retop;
-                    si->si_cxstack[eval_cxix_second].blk_eval.retop = mark_retop;
-                }
-            }
-        }
+    char *label = cPVOPx(PL_op)->op_pv;;
+    DEBUG_printf("_detour_pp: label(%s)\n", label);
+    if (!PL_in_eval) {
+        croak("You must be in an 'eval' to detour execution.");
     }
-    /* Unwinding from an require i.e. from the toplevel of a required
-     * file needs special handling.  If we rely on die() to initiate
-     * the unwinding mechanism then we must counteract the special
-     * REQUIRE handling done by die_unwind(), I suppose patching
-     * 2-levels of eval context will do the trick. If I do that then
-     * we can be lazy and transform
-     *  mark LABEL: BLOCK -> mark' LABEL: eval{eval{ BLOCK }}
-     *
-     * or be smart and somehow figure out that we're in an require so
-     * there must already be 2 eval contexts on the stack.
-     */
-    die("Unwinding from detour_pp. It leaks.");
+    {
+        const PERL_SI *si;
+        I32  label_cxix;
+
+        for (si = PL_curstackinfo; si; si = si->si_prev) {
+            if ((label_cxix = find_labeled_eval(aTHX_ si, label)) >= 0)
+                break;
+        }
+        if (label_cxix < 0)
+            croak("Can not setup a detour: label '%s' not found.", label );
+
+
+        POPSTACK_TO(si->si_stack);
+        dounwind(label_cxix);
+        {
+            /* hack for one test */
+            PL_top_env = PL_top_env->je_prev;
+        }
+
+        /* Hit correct run-loop. Possibly by storing not only the
+           RETOP on the stack but also the JMPENV index.
+         */
+    }
+    die("death");
     return NULL; /* not reached */
 }
 
-static int find_eval(pTHX_
-                     const PERL_SI *stackinfo,
-                     I32 *outIx, I32 *outIx2)
-{
-    dVAR;
-    I32 ix = 0;
-    I32 i;
-    for (i = stackinfo->si_cxix; i >= 0; i--) {
-	PERL_CONTEXT *cx = &(stackinfo->si_cxstack[i]);
-	if (CxTYPE(cx) == CXt_EVAL) {
-	    DEBUG_printf("(find_eval(): found eval at cx=%ld)\n", (long)i);
-            if (ix == 0)
-                *outIx  = i;
-            else
-                *outIx2 = i;
-            if (ix++ == 1)
-                return 1;
-	}
-    }
-    return 0;
-}
-
 static int
-find_mark(pTHX_ const PERL_SI *stackinfo, char *tomark,
-          OP **outRetop, I32 *outIx)
+find_labeled_eval(pTHX_ const PERL_SI *stackinfo, char *label)
 {
     I32 i;
-    DEBUG_printf("find mark '%s' on stack '%s'\n", tomark, si_names[stackinfo->si_type+1]);
-    DEBUG_printf("\tStack Mark Scope\n");
+    DEBUG_printf("find label '%s' on stack '%s'\n",
+                 label, si_names[stackinfo->si_type+1]);
     for (i=stackinfo->si_cxix; i >= 0; i--) {
-        PERL_CONTEXT *cx         = &(stackinfo->si_cxstack[i]);
-        SV          **stack_base = AvARRAY(stackinfo->si_stack);
-        SV           *breadcrumb = *(stack_base + cx->blk_oldsp+1);
-
-        if ( breadcrumb == BREADCRUMB) {
-            char *mark	= SvPVX(*(stack_base + cx->blk_oldsp+2));
-            OP   *retop	=   (OP *)*(stack_base + cx->blk_oldsp+3);
-            DEBUG_printf("\tretop=%p mark=%s\n", retop, tomark);
-            if (0 == strcmp(mark,tomark)) {
-                DEBUG_printf("\tMARK '%s' FOUND RETOP='%p'\n", tomark, retop);
-                *outRetop = retop;
-                *outIx    = i;
-                return 1;
+        PERL_CONTEXT *cx = &(stackinfo->si_cxstack[i]);
+        OP  *retop = cx->blk_eval.retop;
+        if (CxTYPE(cx) == CXt_EVAL && retop && retop->op_ppaddr == label_pp) {
+            assert(cPVOPx(retop)->op_pv);
+            if (!strcmp(label,cPVOPx(retop)->op_pv)) {
+                DEBUG_printf("\tLABEL '%s' FOUND at '%d'\n", label, i);
+                return i;
             }
         }
     }
-    DEBUG_printf("\tMARK '%s' NOT FOUND\n",tomark);
-    return 0;
+    DEBUG_printf("\tLABEL '%s' NOT FOUND\n",label);
+    return -1;
 }
 
 static OP*
@@ -288,48 +155,31 @@ mark_keyword_plugin(pTHX_
 {
     if (keyword_len == 4 && strnEQ(keyword_ptr, "mark", 4))  {
         char *label;
-        OP   *mark;
         OP   *eval_block;
-        OP   *erase;
+        OP   *label_op;
 
         /*
           Transform
              mark LABEL: BLOCK
           to
-             mark' LABEL: { eval { eval BLOCK } }
-
-          because the unwinding mechanism relies on patching the "next"
-          eval context, or in the case of a request the second to next.
+            eval BLOCK; PVOP(erase_pp, LABEL)
+          think of it as
+            LABEL: eval BLOCK
+          and we label the eval by making sure a labeled PVOP
+          is the retop of the eval block.
          */
 
-        label      = _parse_label(aTHX);
-        eval_block = create_or_die(aTHX_
-                                   create_eval(aTHX_
-                                               create_or_die(aTHX_
-                                                             create_eval(aTHX_
-                                                                         _parse_block(aTHX)
-                                                                 ))));
+        label = _parse_label(aTHX);
+        eval_block =  create_eval(aTHX_
+                                  _parse_block(aTHX));
 
-        /*
-           newPVOP(OP_CUSTOM,...) fails the following assertions in
-           debug builds
+        label_op = newPVOP(OP_CUSTOM, 0, label);
+        label_op->op_ppaddr = label_pp;
 
-           assert((PL_opargs[type] & OA_CLASS_MASK) == OA_PVOP_OR_SVOP
-               || type == OP_RUNCV
-               || (PL_opargs[type] & OA_CLASS_MASK) == OA_LOOPEXOP);
-         */
-        mark = newPVOP(OP_CUSTOM, 0, label);
-        mark->op_ppaddr = mark_pp;
-
-        erase = newPVOP(OP_CUSTOM, 0, label);
-        erase->op_ppaddr = erase_pp;
-
-        mark->op_sibling       = eval_block;
-        eval_block->op_sibling = erase;
-        erase->op_sibling      = NULL;
-
-        DEBUG_printf("mark(%p)->eval(%p)->erase(%p)\n", mark, eval_block, erase);
-        *op_ptr = newLISTOP(OP_LINESEQ, 0, mark, NULL);
+        DEBUG_printf("eval(%p)->erase(%p)\n", eval_block, label_op);
+        *op_ptr = newLISTOP(OP_LIST, 0, NULL, NULL);
+        op_append_elem(OP_LIST, *op_ptr, eval_block);
+        op_append_elem(OP_LIST, *op_ptr, label_op);
 
         return KEYWORD_PLUGIN_STMT;
     }
@@ -355,23 +205,15 @@ MODULE = Stack::Unwind PACKAGE = Stack::Unwind
 PROTOTYPES: DISABLE
 
 BOOT:
-    XopENTRY_set(&mark_xop, xop_name,  "mark_xop");
-    XopENTRY_set(&mark_xop, xop_desc,  "mark the stack for unwinding");
-    XopENTRY_set(&mark_xop, xop_class, OA_PVOP_OR_SVOP);
-    Perl_custom_op_register(aTHX_ mark_pp, &mark_xop);
-
-    XopENTRY_set(&erase_xop, xop_name,  "erase_xop");
-    XopENTRY_set(&erase_xop, xop_desc,  "erase the mark");
-    XopENTRY_set(&erase_xop, xop_class, OA_UNOP);
-    Perl_custom_op_register(aTHX_ erase_pp, &erase_xop);
+    XopENTRY_set(&label_xop, xop_name,  "label_xop");
+    XopENTRY_set(&label_xop, xop_desc,  "label the mark");
+    XopENTRY_set(&label_xop, xop_class, OA_UNOP);
+    Perl_custom_op_register(aTHX_ label_pp, &label_xop);
 
     XopENTRY_set(&unwind_xop, xop_name,  "unwind");
     XopENTRY_set(&unwind_xop, xop_desc,  "unwind the stack to the mark");
     XopENTRY_set(&unwind_xop, xop_class, OA_PVOP_OR_SVOP);
     Perl_custom_op_register(aTHX_ detour_pp, &unwind_xop);
-
-    /* This breadcrumb doesn't get freed. I don't care. */
-    BREADCRUMB = newSVpvs("This is a breadcrumb I use to mark parts of the stack as being owned by this module");
 
     next_keyword_plugin =  PL_keyword_plugin;
     PL_keyword_plugin   = mark_keyword_plugin;

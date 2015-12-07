@@ -4,9 +4,9 @@ use warnings;
 use Test::More tests => 1;
 use Stack::Unwind;
 
-
-my $x = 'foo';
+my $x;
 mark LABEL: {
+    $x = 'foo';
     unwind LABEL:;
     $x = 'bar';
 }
