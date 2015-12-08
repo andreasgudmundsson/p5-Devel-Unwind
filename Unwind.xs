@@ -61,17 +61,18 @@ static OP* detour_pp(pTHX)
             SVOP *retop  = cSVOPx(si->si_cxstack[label_cxix].blk_eval.retop);
             SV   *jmplvl = *(av_fetch((AV*)(retop->op_sv), 1, 0));
             IV        jl = SvIVX(jmplvl);
-            DEBUG_printf("jmplvl: %ld\n", jl); /* No IVf? */
             {
                 JMPENV *p  = PL_top_env;
                 while(p) {jl--; p = p->je_prev;}
             }
+            DEBUG_printf("jmplvl, jmplvl-diff: %ld, %ld\n", SvIVX(jmplvl), jl);
             while (jl++ < 0)
                 PL_top_env = PL_top_env->je_prev;
         }
     }
-    die("death");
-    return NULL; /* not reached */
+     /* die_unwind() is called directly to skip the $SIG{__DIE__} handler */
+    Perl_die_unwind(newSVpv("unwind die",0));
+    NOT_REACHED; /* NOTREACHED */
 }
 
 static int
