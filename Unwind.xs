@@ -7,24 +7,21 @@
 static XOP mark_xop;
 static XOP label_xop;
 static XOP unwind_xop;
+
 static int (*next_keyword_plugin)(pTHX_ char *, STRLEN, OP **);
-
 static int find_mark(pTHX_ const PERL_SI *, SV *);
-
-
 
 static OP* mark_pp(pTHX)
 {
     dSP;
     SVOP *label_op = cSVOPx(PL_op->op_sibling->op_sibling);
     IV    jmplvl   = 0;
-    {
-        JMPENV *p = PL_top_env;
-        while(p) { jmplvl++; p = p->je_prev; }
-    }
+    JMPENV *p = PL_top_env;
 
+    while(p) { jmplvl++; p = p->je_prev; }
     av_store((AV*)label_op->op_sv,1,newSViv(jmplvl));
     DEBUG_printf("mark_pp = jmplvl %ld\n", jmplvl); /* No IVf ? */
+
     RETURN;
 }
 
@@ -162,9 +159,6 @@ static SV *_parse_label(pTHX) {
     return label;
 }
 
-/*
- * mark LABEL BLOCK
- */
 static int
 mark_keyword_plugin(pTHX_
                   char *keyword_ptr,
@@ -191,7 +185,6 @@ mark_keyword_plugin(pTHX_
         label      = _parse_label(aTHX);
         eval_block =  create_eval(aTHX_
                                   _parse_block(aTHX));
-
 
         mark_op = newOP(OP_CUSTOM, 0);
         mark_op->op_ppaddr = mark_pp;
