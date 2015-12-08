@@ -63,8 +63,12 @@ static OP* detour_pp(pTHX)
                 while(p) {jl--; p = p->je_prev;}
             }
             DEBUG_printf("jmplvl, jmplvl-diff: %ld, %ld\n", SvIVX(jmplvl), jl);
-            while (jl++ < 0)
-                PL_top_env = PL_top_env->je_prev;
+            while (jl++ < 0) {
+                dJMPENV;
+                cur_env = *PL_top_env;
+                PL_top_env = &cur_env; /* Hackishly silence assertion */
+                JMPENV_POP;
+            }
         }
     }
      /* die_unwind() is called directly to skip the $SIG{__DIE__} handler */
