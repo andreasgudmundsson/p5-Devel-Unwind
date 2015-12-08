@@ -4,20 +4,34 @@
 
 #include "unwind_debug.h"
 
+static XOP mark_xop;
 static XOP label_xop;
 static XOP unwind_xop;
 static int (*next_keyword_plugin)(pTHX_ char *, STRLEN, OP **);
 
 static int find_mark(pTHX_ const PERL_SI *, SV *);
 
+
+
+static OP* mark_pp(pTHX)
+{
+    dSP;
+    SVOP *label_op = cSVOPx(PL_op->op_sibling->op_sibling);
+    IV    jmplvl   = 0;
+    {
+        JMPENV *p = PL_top_env;
+        while(p) { jmplvl++; p = p->je_prev; }
+    }
+
+    av_store((AV*)label_op->op_sv,1,newSViv(jmplvl));
+    DEBUG_printf("mark_pp = jmplvl %ld\n", jmplvl); /* No IVf ? */
+    RETURN;
+}
+
 static OP* label_pp(pTHX)
 {
     dSP;
-
     DEBUG_printf("label_pp\n");
-    deb_stack();
-    deb_cx();
-
     RETURN;
 }
 
@@ -41,17 +55,20 @@ static OP* detour_pp(pTHX)
         if (label_cxix < 0)
             croak("Can not setup a detour: label '%s' not found.", label );
 
-
         POPSTACK_TO(si->si_stack);
         dounwind(label_cxix);
         {
-            /* hack for one test */
-            PL_top_env = PL_top_env->je_prev;
+            SVOP *retop  = cSVOPx(si->si_cxstack[label_cxix].blk_eval.retop);
+            SV   *jmplvl = *(av_fetch((AV*)(retop->op_sv), 1, 0));
+            IV        jl = SvIVX(jmplvl);
+            DEBUG_printf("jmplvl: %ld\n", jl); /* No IVf? */
+            {
+                JMPENV *p  = PL_top_env;
+                while(p) {jl--; p = p->je_prev;}
+            }
+            while (jl++ < 0)
+                PL_top_env = PL_top_env->je_prev;
         }
-
-        /* Hit correct run-loop. Possibly by storing not only the
-           RETOP on the stack but also the JMPENV index.
-         */
     }
     die("death");
     return NULL; /* not reached */
@@ -154,6 +171,7 @@ mark_keyword_plugin(pTHX_
                   OP **op_ptr)
 {
     if (keyword_len == 4 && strnEQ(keyword_ptr, "mark", 4))  {
+        OP *mark_op;
         OP *eval_block;
         OP *label_op;
         AV *label_data;
@@ -173,14 +191,19 @@ mark_keyword_plugin(pTHX_
         eval_block =  create_eval(aTHX_
                                   _parse_block(aTHX));
 
+
+        mark_op = newOP(OP_CUSTOM, 0);
+        mark_op->op_ppaddr = mark_pp;
+
         label_data = newAV();
-        av_push(label_data, label); /* later we'll push the JMPENV idx */
+        av_store(label_data,0,label);
 
         label_op = newSVOP(OP_CUSTOM, 0, (SV*)label_data);
         label_op->op_ppaddr = label_pp;
 
         DEBUG_printf("eval(%p)->erase(%p)\n", eval_block, label_op);
         *op_ptr = newLISTOP(OP_LIST, 0, NULL, NULL);
+        op_append_elem(OP_LIST, *op_ptr, mark_op);
         op_append_elem(OP_LIST, *op_ptr, eval_block);
         op_append_elem(OP_LIST, *op_ptr, label_op);
 
@@ -202,6 +225,11 @@ MODULE = Stack::Unwind PACKAGE = Stack::Unwind
 PROTOTYPES: DISABLE
 
 BOOT:
+    XopENTRY_set(&mark_xop, xop_name,  "mark_xop");
+    XopENTRY_set(&mark_xop, xop_desc,  "mark op");
+    XopENTRY_set(&mark_xop, xop_class, OA_UNOP);
+    Perl_custom_op_register(aTHX_ mark_pp, &mark_xop);
+
     XopENTRY_set(&label_xop, xop_name,  "label_xop");
     XopENTRY_set(&label_xop, xop_desc,  "label the mark");
     XopENTRY_set(&label_xop, xop_class, OA_UNOP);
