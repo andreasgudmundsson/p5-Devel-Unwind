@@ -77,25 +77,6 @@ find_mark(pTHX_ const PERL_SI *stackinfo, const char *label)
 }
 
 static OP*
-create_or_die(pTHX_ OP *block) {
-    /*
-      [andreasg@latti] ((v5.14.4)) ~/r/perl$ perl -MO=Terse -e 'eval {} or die'
-        ...
-        LOGOP (0xd1d298) or
-            LISTOP (0xd1d328) leavetry
-                LOGOP (0xd1d370) entertry
-                OP (0xd1d3f8) stub
-            LISTOP (0xd1d2e0) die [1]
-                OP (0xd1d3b8) pushmark
-     */
-
-    return newLOGOP(OP_OR, 0, block,
-                    newLISTOP(OP_DIE, 0,
-                              newOP(OP_PUSHMARK, 0),
-                              newSVOP(OP_CONST, 0, SvREFCNT_inc(ERRSV))));
-}
-
-static OP*
 create_eval(pTHX_ OP *block) {
     OP    *o;
     LOGOP *enter;
