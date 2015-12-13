@@ -4,26 +4,11 @@
 
 #include "unwind_debug.h"
 
-static XOP mark_xop;
 static XOP label_xop;
 static XOP unwind_xop;
 
 static int (*next_keyword_plugin)(pTHX_ char *, STRLEN, OP **);
-static int find_mark(pTHX_ const PERL_SI *, SV *);
-
-static OP* mark_pp(pTHX)
-{
-    dSP;
-    SVOP *label_op = cSVOPx(PL_op->op_sibling->op_sibling);
-    IV    jmplvl   = 0;
-    JMPENV *p = PL_top_env;
-
-    while(p) { jmplvl++; p = p->je_prev; }
-    av_store((AV*)label_op->op_sv,1,newSViv(jmplvl));
-    DEBUG_printf("mark_pp = jmplvl %ld\n", jmplvl); /* No IVf ? */
-
-    RETURN;
-}
+static int find_mark(pTHX_ const PERL_SI *, const char*);
 
 static OP* label_pp(pTHX)
 {
@@ -35,8 +20,8 @@ static OP* label_pp(pTHX)
 static OP* detour_pp(pTHX)
 {
     dVAR;
-    SV *label = cSVOPx(PL_op)->op_sv;
-    DEBUG_printf("_detour_pp: label(%s)\n", SvPV_nolen(label));
+    char *label = cPVOPx(PL_op)->op_pv;
+    DEBUG_printf("_detour_pp: label(%s)\n", label);
     if (!PL_in_eval) {
         croak("You must be in an 'eval' to detour execution.");
     }
@@ -55,15 +40,8 @@ static OP* detour_pp(pTHX)
         POPSTACK_TO(si->si_stack);
         dounwind(label_cxix);
         {
-            SVOP *retop  = cSVOPx(si->si_cxstack[label_cxix].blk_eval.retop);
-            SV   *jmplvl = *(av_fetch((AV*)(retop->op_sv), 1, 0));
-            IV        jl = SvIVX(jmplvl);
-            {
-                JMPENV *p  = PL_top_env;
-                while(p) {jl--; p = p->je_prev;}
-            }
-            DEBUG_printf("jmplvl, jmplvl-diff: %ld, %ld\n", SvIVX(jmplvl), jl);
-            while (jl++ < 0) {
+            JMPENV *eval_jmpenv = si->si_cxstack[label_cxix].blk_eval.cur_top_env;
+            while (PL_top_env != eval_jmpenv) {
                 dJMPENV;
                 cur_env = *PL_top_env;
                 PL_top_env = &cur_env; /* Hackishly silence assertion */
@@ -73,28 +51,28 @@ static OP* detour_pp(pTHX)
     }
      /* die_unwind() is called directly to skip the $SIG{__DIE__} handler */
     Perl_die_unwind(newSVpv("unwind die",0));
-    NOT_REACHED; /* NOTREACHED */
+    assert(0); /* NOTREACHED */
 }
 
 static int
-find_mark(pTHX_ const PERL_SI *stackinfo, SV *label)
+find_mark(pTHX_ const PERL_SI *stackinfo, const char *label)
 {
     I32 i;
     DEBUG_printf("find label '%s' on stack '%s'\n",
-                 SvPV_nolen(label), si_names[stackinfo->si_type+1]);
+                 label, si_names[stackinfo->si_type+1]);
     for (i=stackinfo->si_cxix; i >= 0; i--) {
         PERL_CONTEXT *cx = &(stackinfo->si_cxstack[i]);
         OP  *retop = cx->blk_eval.retop;
         if (CxTYPE(cx) == CXt_EVAL && retop && retop->op_ppaddr == label_pp) {
-            assert(cSVOPx(retop)->op_sv);
-            SV *mark_label = *(av_fetch((AV*)cSVOPx(retop)->op_sv, 0, 0));
-            if (!sv_cmp(label,mark_label)) {
-                DEBUG_printf("\tLABEL '%s' FOUND at '%d'\n", SvPV_nolen(label), i);
+            assert(cPVOPx(retop)->op_pv);
+            char *mark_label = cPVOPx(retop)->op_pv;
+            if (!strcmp(label,mark_label)) {
+                DEBUG_printf("\tLABEL '%s' FOUND at '%d'\n", label, i);
                 return i;
             }
         }
     }
-    DEBUG_printf("\tLABEL '%s' NOT FOUND\n", SvPV_nolen(label));
+    DEBUG_printf("\tLABEL '%s' NOT FOUND\n", label);
     return -1;
 }
 
@@ -151,14 +129,19 @@ static OP *_parse_block(pTHX)
     return o;
 }
 
-static SV *_parse_label(pTHX) {
+static char *_parse_label(pTHX) {
     I32 error_count = PL_parser->error_count;
-    SV *label       = parse_label(0);
+    char *label;
+    {
+        SV *l = parse_label(0);
+        label = savesharedsvpv(l);
+        SvREFCNT_dec(l);
+    }
 
     if (error_count < PL_parser->error_count)
         croak("Invalid label for 'mark' at %s.\n", OutCopFILE(PL_curcop));
     else
-        DEBUG_printf("Valid label: %s\n", SvPV_nolen(label));
+        DEBUG_printf("Valid label: %s\n", label);
 
     return label;
 }
@@ -170,11 +153,9 @@ mark_keyword_plugin(pTHX_
                   OP **op_ptr)
 {
     if (keyword_len == 4 && strnEQ(keyword_ptr, "mark", 4))  {
-        OP *mark_op;
         OP *eval_block;
         OP *label_op;
-        AV *label_data;
-        SV *label;
+        char *label;
         /*
           Transform
              mark LABEL: BLOCK
@@ -190,25 +171,18 @@ mark_keyword_plugin(pTHX_
         eval_block =  create_eval(aTHX_
                                   _parse_block(aTHX));
 
-        mark_op = newOP(OP_CUSTOM, 0);
-        mark_op->op_ppaddr = mark_pp;
-
-        label_data = newAV();
-        av_store(label_data,0,label);
-
-        label_op = newSVOP(OP_CUSTOM, 0, (SV*)label_data);
+        label_op = newPVOP(OP_CUSTOM, 0, label);
         label_op->op_ppaddr = label_pp;
 
         DEBUG_printf("eval(%p)->erase(%p)\n", eval_block, label_op);
         *op_ptr = newLISTOP(OP_LIST, 0, NULL, NULL);
-        op_append_elem(OP_LIST, *op_ptr, mark_op);
         op_append_elem(OP_LIST, *op_ptr, eval_block);
         op_append_elem(OP_LIST, *op_ptr, label_op);
 
         return KEYWORD_PLUGIN_STMT;
     }
     else if (keyword_len == 6 && strnEQ(keyword_ptr, "unwind", 6)) {
-        OP *detour = newSVOP(OP_CUSTOM, 0, _parse_label(aTHX));
+        OP *detour = newPVOP(OP_CUSTOM, 0, _parse_label(aTHX));
         detour->op_ppaddr = detour_pp;
         *op_ptr = detour;
         return KEYWORD_PLUGIN_STMT;
@@ -223,11 +197,6 @@ MODULE = Stack::Unwind PACKAGE = Stack::Unwind
 PROTOTYPES: DISABLE
 
 BOOT:
-    XopENTRY_set(&mark_xop, xop_name,  "mark_xop");
-    XopENTRY_set(&mark_xop, xop_desc,  "mark op");
-    XopENTRY_set(&mark_xop, xop_class, OA_UNOP);
-    Perl_custom_op_register(aTHX_ mark_pp, &mark_xop);
-
     XopENTRY_set(&label_xop, xop_name,  "label_xop");
     XopENTRY_set(&label_xop, xop_desc,  "label the mark");
     XopENTRY_set(&label_xop, xop_class, OA_UNOP);
