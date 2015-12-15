@@ -19,6 +19,6 @@ use Stack::Unwind;
 mark TOPLEVEL: {
     (bless [], "Foo")->bar;
     fail "Execution resumed inside mark";
-}
+};
 pass "Execution resumed after mark";
 done_testing;

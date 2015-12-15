@@ -19,9 +19,19 @@ static OP* label_pp(pTHX)
 
 static OP* detour_pp(pTHX)
 {
-    dVAR;
-    char *label = cPVOPx(PL_op)->op_pv;
-    DEBUG_printf("_detour_pp: label(%s)\n", label);
+    dVAR; dSP; dMARK;
+    SV *exsv;
+    const char *label;
+
+    label = SvPVX(POPs);
+    if (SP - MARK != 1) {
+	exsv = newSVpvn("",0);
+	do_join(exsv, &PL_sv_no, MARK, SP);
+	SP = MARK + 1;
+    } else {
+        exsv = POPs;
+    }
+
     if (!PL_in_eval) {
         croak("You must be in an 'eval' to detour execution.");
     }
@@ -50,7 +60,7 @@ static OP* detour_pp(pTHX)
         }
     }
      /* die_unwind() is called directly to skip the $SIG{__DIE__} handler */
-    Perl_die_unwind(newSVpv("unwind die",0));
+    Perl_die_unwind(exsv);
     assert(0); /* NOTREACHED */
 }
 
@@ -110,19 +120,14 @@ static OP *_parse_block(pTHX)
     return o;
 }
 
-static char *_parse_label(pTHX) {
+static SV *_parse_label(pTHX) {
     I32 error_count = PL_parser->error_count;
-    char *label;
-    {
-        SV *l = parse_label(0);
-        label = savesharedsvpv(l);
-        SvREFCNT_dec(l);
-    }
+    SV *label = parse_label(0);
 
     if (error_count < PL_parser->error_count)
-        croak("Invalid label for 'mark' at %s.\n", OutCopFILE(PL_curcop));
+        croak("Invalid label at %s.\n", OutCopFILE(PL_curcop));
     else
-        DEBUG_printf("Valid label: %s\n", label);
+        DEBUG_printf("Valid label: %s\n", SvPV_nolen(label));
 
     return label;
 }
@@ -147,8 +152,12 @@ mark_keyword_plugin(pTHX_
           and we label the eval by making sure a labeled PVOP
           is the retop of the eval block.
          */
+        {
+            SV *l = _parse_label(aTHX);
+            label = savesharedsvpv(l);
+            SvREFCNT_dec(l);
+        }
 
-        label      = _parse_label(aTHX);
         eval_block =  create_eval(aTHX_
                                   _parse_block(aTHX));
 
@@ -160,12 +169,25 @@ mark_keyword_plugin(pTHX_
         op_append_elem(OP_LIST, *op_ptr, eval_block);
         op_append_elem(OP_LIST, *op_ptr, label_op);
 
-        return KEYWORD_PLUGIN_STMT;
+        return KEYWORD_PLUGIN_EXPR;
     }
     else if (keyword_len == 6 && strnEQ(keyword_ptr, "unwind", 6)) {
-        OP *detour = newPVOP(OP_CUSTOM, 0, _parse_label(aTHX));
-        detour->op_ppaddr = detour_pp;
-        *op_ptr = detour;
+        /*
+          unwind LABEL [EXPRESSION];
+         */
+        SV *label;
+        OP *expr;
+
+        label = _parse_label(aTHX);
+        expr  = parse_listexpr(aTHX_ PARSE_OPTIONAL);
+        expr  = op_contextualize(expr, G_ARRAY);
+
+        *op_ptr =  op_convert_list(OP_CUSTOM, 0,
+                                   op_append_elem(OP_LIST,
+                                                  expr,
+                                                  newSVOP(OP_CONST, 0, label)));
+        (*op_ptr)->op_ppaddr = detour_pp;
+
         return KEYWORD_PLUGIN_STMT;
     }
     else {

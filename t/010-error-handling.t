@@ -13,8 +13,10 @@ mark FOO: {
         unwind BAR:;
         1;
     } or do {
-        fail "How should we fail? <$@>";
+        like($@, qr/'BAR' not found/);
     };
+    die "died from foo";
+} or do {
+    like($@, qr/^died from foo/);;
 };
-fail "You can only fail";
 done_testing;

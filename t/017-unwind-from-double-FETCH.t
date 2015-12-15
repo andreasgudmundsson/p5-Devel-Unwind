@@ -30,7 +30,7 @@ mark LABEL: {
     tie $x, 'main';
     my $y = $x;
     fail "Execution resumed inside mark block";
-}
+};
 is($a, "a", "Variable correctly set after mark block");
 pass "Execution resumed after mark block";
 done_testing;

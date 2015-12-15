@@ -1,0 +1,34 @@
+use warnings;
+use strict;
+
+use Test::More;
+use Scalar::Util 'blessed';
+use Stack::Unwind 'unwind';
+
+my $entered_do;
+mark TOPLEVEL: {
+    eval {
+        unwind TOPLEVEL: (bless [], "FOO");
+        fail "Execution after die";
+        1;
+    } or do {
+        fail "Execution in do block";
+    };
+    fail "Execution after eval but inside mark block";
+    1;
+} or do {
+    $entered_do = 1;
+    ok(blessed($@) && ref($@) eq "FOO", '$@ is a blessed reference');
+};
+ok($entered_do, "Entered do block");
+undef $entered_do;
+
+mark TOPLEVEL: {
+    unwind TOPLEVEL: 1..5;
+    1;
+} or do {
+    $entered_do = 1;
+    is($@,"12345", '$@ is "12345"');
+};
+ok($entered_do, "Entered second do block");
+done_testing;
