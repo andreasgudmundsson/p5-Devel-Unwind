@@ -1,22 +1,18 @@
 use warnings;
 use strict;
 
-use Test::More;
 use Stack::Unwind;
+use Test::More;
+use File::Spec;
 
-# I'm not sure how to handle
-# errors here so this test just
-# fails for now
+my $pid=fork();
+die "Can't fork" unless defined $pid;
 
-mark FOO: {
-    eval {
-        unwind BAR:;
-        1;
-    } or do {
-        like($@, qr/'BAR' not found/);
-    };
-    die "died from foo";
-} or do {
-    like($@, qr/^died from foo/);;
-};
-done_testing;
+if ($pid == 0) {
+    open STDERR, '>', File::Spec->devnull();
+    mark FOO: { unwind BAR:; };
+    exit(0);
+}
+waitpid $pid,0;
+isnt($?, 0, "Unwinding to a non-existing label should exit with a failure.");
+done_testing();

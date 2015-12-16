@@ -10,6 +10,17 @@ static XOP unwind_xop;
 static int (*next_keyword_plugin)(pTHX_ char *, STRLEN, OP **);
 static int find_mark(pTHX_ const PERL_SI *, const char*);
 
+STATIC SV *
+my_with_queued_errors(pTHX_ SV *ex)
+{
+    if (PL_errors && SvCUR(PL_errors) && !SvROK(ex)) {
+	sv_catsv(PL_errors, ex);
+	ex = sv_mortalcopy(PL_errors);
+	SvCUR_set(PL_errors, 0);
+    }
+    return ex;
+}
+
 static OP* label_pp(pTHX)
 {
     dSP;
@@ -44,8 +55,13 @@ static OP* detour_pp(pTHX)
             if (label_cxix >= 0)
                 break;
         }
-        if (label_cxix < 0)
-            croak("Can not setup a detour: label '%s' not found.", label );
+        if (label_cxix < 0) {
+            Perl_write_to_stderr(
+                my_with_queued_errors(
+                    mess("Can not setup a detour: label '%s' not found. Exiting..",
+                         label)));
+            Perl_my_failure_exit();
+        }
 
         POPSTACK_TO(si->si_stack);
         dounwind(label_cxix);
@@ -158,13 +174,12 @@ mark_keyword_plugin(pTHX_
             SvREFCNT_dec(l);
         }
 
-        eval_block =  create_eval(aTHX_
-                                  _parse_block(aTHX));
+        eval_block = create_eval(aTHX_
+                                 _parse_block(aTHX)),
 
         label_op = newPVOP(OP_CUSTOM, 0, label);
         label_op->op_ppaddr = label_pp;
 
-        DEBUG_printf("eval(%p)->erase(%p)\n", eval_block, label_op);
         *op_ptr = newLISTOP(OP_LIST, 0, NULL, NULL);
         op_append_elem(OP_LIST, *op_ptr, eval_block);
         op_append_elem(OP_LIST, *op_ptr, label_op);
