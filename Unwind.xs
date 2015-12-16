@@ -181,9 +181,7 @@ mark_keyword_plugin(pTHX_
         label_op = newPVOP(OP_CUSTOM, 0, label);
         label_op->op_ppaddr = label_pp;
 
-        *op_ptr = newLISTOP(OP_LIST, 0, NULL, NULL);
-        op_append_elem(OP_LIST, *op_ptr, eval_block);
-        op_append_elem(OP_LIST, *op_ptr, label_op);
+        *op_ptr = op_append_elem(OP_LIST, eval_block, label_op);
 
         return KEYWORD_PLUGIN_EXPR;
     }
