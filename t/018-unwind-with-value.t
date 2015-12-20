@@ -28,7 +28,7 @@ mark TOPLEVEL: {
     1;
 } or do {
     $entered_do = 1;
-    is($@,"12345", '$@ is "12345"');
+    like($@,qr/^12345\b/, '$@ is "12345"');
 };
 ok($entered_do, "Entered second do block");
 done_testing;

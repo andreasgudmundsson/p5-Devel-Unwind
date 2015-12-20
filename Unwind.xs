@@ -6,11 +6,14 @@
 
 static XOP label_xop;
 static XOP unwind_xop;
+static XOP mydie_xop;
 
 static int (*next_keyword_plugin)(pTHX_ char *, STRLEN, OP **);
 static int find_mark(pTHX_ const PERL_SI *, const char*);
 
-STATIC SV *
+static OP* create_eval(pTHX_ OP *block);
+
+static SV *
 my_with_queued_errors(pTHX_ SV *ex)
 {
     if (PL_errors && SvCUR(PL_errors) && !SvROK(ex)) {
@@ -21,18 +24,36 @@ my_with_queued_errors(pTHX_ SV *ex)
     return ex;
 }
 
-static OP* label_pp(pTHX)
-{
-    dSP;
-    DEBUG_printf("label_pp\n");
-    RETURN;
+static OP* label_pp(pTHX) { return NORMAL; }
+
+static OP* mydie_pp(pTHX) {
+    Perl_die_unwind(ERRSV);
 }
 
 static OP* detour_pp(pTHX)
 {
     dVAR; dSP; dMARK;
     SV *exsv;
+    STRLEN len;
     const char *label;
+
+    int olddepth = 0;
+    CV *diehook_cv = NULL;
+
+    if (PL_diehook) {
+        /*
+          WIP: Document this magic
+         */
+        HV *stash;
+        GV *gv;
+        SV * const oldhook = PL_diehook;
+        ENTER;
+        SAVESPTR(PL_diehook);
+        PL_diehook = NULL;
+        diehook_cv = sv_2cv(oldhook, &stash, &gv, 0);
+        LEAVE;
+        olddepth = CvDEPTH(diehook_cv);
+    }
 
     label = SvPVX(POPs);
     if (SP - MARK != 1) {
@@ -43,17 +64,50 @@ static OP* detour_pp(pTHX)
         exsv = POPs;
     }
 
-    if (!PL_in_eval) {
-        croak("You must be in an 'eval' to detour execution.");
+    if (SvROK(exsv) || (SvPV_const(exsv, len), len)) {
+	/* well-formed exception supplied */
     }
+    else {
+	SV * const errsv = ERRSV;
+	SvGETMAGIC(errsv);
+	if (SvROK(errsv)) {
+	    exsv = errsv;
+	    if (sv_isobject(exsv)) {
+		HV * const stash = SvSTASH(SvRV(exsv));
+		GV * const gv = gv_fetchmethod(stash, "PROPAGATE");
+		if (gv) {
+		    SV * const file = sv_2mortal(newSVpv(CopFILE(PL_curcop),0));
+		    SV * const line = sv_2mortal(newSVuv(CopLINE(PL_curcop)));
+		    EXTEND(SP, 3);
+		    PUSHMARK(SP);
+		    PUSHs(exsv);
+		    PUSHs(file);
+		    PUSHs(line);
+		    PUTBACK;
+		    call_sv(MUTABLE_SV(GvCV(gv)),
+			    G_SCALAR|G_EVAL|G_KEEPERR);
+		    exsv = sv_mortalcopy(*PL_stack_sp--);
+		}
+	    }
+	}
+	else if (SvPOK(errsv) && SvCUR(errsv)) {
+	    exsv = sv_mortalcopy(errsv);
+	    sv_catpvs(exsv, "\t...propagated");
+	}
+	else {
+	    exsv = newSVpvs_flags("Died", SVs_TEMP);
+	}
+    }
+
     {
         const PERL_SI *si;
         I32  label_cxix;
 
         for (si = PL_curstackinfo; si; si = si->si_prev) {
             label_cxix = find_mark(aTHX_ si, label);
-            if (label_cxix >= 0)
+            if (label_cxix >= 0) {
                 break;
+            }
         }
         if (label_cxix < 0) {
             Perl_write_to_stderr(
@@ -76,8 +130,18 @@ static OP* detour_pp(pTHX)
         }
     }
 
-     /* die_unwind() is called directly to skip the $SIG{__DIE__} handler */
-    Perl_die_unwind(exsv);
+    if (PL_diehook) {
+        /* If we're running inside the die hook then the previous POPSUB
+           restored the CvDEPTH to zero. We restore the old CvDEPTH
+           to prevent infinitie recursion in the die hook.
+
+           If we're not runnin inside the die hook then
+           CvDEPTH(diehook_cv) equals olddepth;
+         */
+        CvDEPTH(diehook_cv) = olddepth;
+    }
+
+    Perl_die_sv(exsv);
     assert(0); /* NOTREACHED */
 }
 
@@ -101,6 +165,87 @@ find_mark(pTHX_ const PERL_SI *stackinfo, const char *label)
     }
     DEBUG_printf("\tLABEL '%s' NOT FOUND\n", label);
     return -1;
+}
+
+static OP*
+disable_scalar_context_optimization(pTHX_ OP *mark_expr) {
+/*
+  The mark expression is of the form
+
+    eval BLOCK, PVOP(label_pp, LABEL)
+
+  in scalar context it has the value of PVOP(label_pp, LABEL) but
+  we're interested in the return value of the eval. So I jump through
+  hoops and wrap mark_expr in
+
+    eval {
+      my @x = mark_expr;
+      local $SIG{__DIE__};
+      die $@ if $@;
+      {
+         # Disables warnings about useless constants
+         # in void context
+         no warnings;
+         wantarray ? @x : $x[-1];
+      }
+    }
+
+  And since I call die here I do end up calling the $SIG{__DIE__}
+  handler.
+
+  This feels dirty but it's all I've got :/
+*/
+    PADOFFSET padoff;
+    OP *a1,*a2,*a3;
+    OP *assign_to_array;
+    OP *die_if_error;
+    OP *wantarray;
+    OP *block;
+    OP *std_warning_cop;
+    OP *o;
+
+    padoff = pad_add_name_pvs("@__stack_unwind_internal",
+                              /* Do I have to prevent name collisions
+                                 Is it guaranteed that the user can't
+                                 by mistake use the array name
+                                 @___stack_unwind_internal?
+                               */
+                              padadd_NO_DUP_CHECK,
+                              0,0);
+
+    a1 = newOP(OP_PADAV, OPf_MOD  | (OPpLVAL_INTRO<<8));
+    a2 = newOP(OP_PADAV, 0);
+    a3 = newOP(OP_PADAV, 0);
+    a1->op_targ = a2->op_targ = a3->op_targ = padoff;
+
+    assign_to_array =  newSTATEOP(0, NULL,
+                                  newASSIGNOP(OPf_STACKED, a1, 0, mark_expr));
+
+    die_if_error =/* I'm missing: local $SIG{__DIE__}=undef; */
+        newLOGOP(OP_AND, 0,
+                 newUNOP(OP_RV2SV, 0,
+                         newGVOP(OP_GV, 0, PL_errgv)),
+                 (o = newOP(OP_CUSTOM, 0),
+                  o->op_ppaddr = mydie_pp,
+                  o));
+
+    wantarray =  newCONDOP(0,
+                           newOP(OP_WANTARRAY, 0),
+                           a2,
+                           newBINOP(OP_AELEM, 0,
+                                    a3,
+                                    newSVOP(OP_CONST, 0,
+                                            newSViv(-1))));
+
+    std_warning_cop = newSTATEOP(0, NULL, 0);
+    cCOPx(std_warning_cop)->cop_warnings = pWARN_NONE;
+
+    block = op_append_elem(OP_LIST, assign_to_array, newSTATEOP(0, NULL, 0));
+    block = op_append_elem(OP_LIST, block, die_if_error);
+    block = op_append_elem(OP_LIST, block, std_warning_cop);
+    block = op_append_elem(OP_LIST, block, wantarray);
+
+    return create_eval(aTHX_ block);
 }
 
 static OP*
@@ -163,7 +308,7 @@ mark_keyword_plugin(pTHX_
           Transform
              mark LABEL: BLOCK
           to
-            eval BLOCK; PVOP(erase_pp, LABEL)
+            eval BLOCK; PVOP(label_pp, LABEL)
           think of it as
             LABEL: eval BLOCK
           and we label the eval by making sure a labeled PVOP
@@ -176,12 +321,15 @@ mark_keyword_plugin(pTHX_
         }
 
         eval_block = create_eval(aTHX_
-                                 _parse_block(aTHX)),
+                                 _parse_block(aTHX));
 
         label_op = newPVOP(OP_CUSTOM, 0, label);
         label_op->op_ppaddr = label_pp;
 
-        *op_ptr = op_append_elem(OP_LIST, eval_block, label_op);
+        *op_ptr =
+            disable_scalar_context_optimization(
+                op_append_elem(OP_LIST, eval_block, label_op));
+
 
         return KEYWORD_PLUGIN_EXPR;
     }
@@ -223,6 +371,11 @@ BOOT:
     XopENTRY_set(&unwind_xop, xop_desc,  "unwind the stack to the mark");
     XopENTRY_set(&unwind_xop, xop_class, OA_PVOP_OR_SVOP);
     Perl_custom_op_register(aTHX_ detour_pp, &unwind_xop);
+
+    XopENTRY_set(&mydie_xop, xop_name,  "mydie");
+    XopENTRY_set(&mydie_xop, xop_desc,  "mydie, dies without calling the SIGDIE handler");
+    XopENTRY_set(&mydie_xop, xop_class, OA_UNOP);
+    Perl_custom_op_register(aTHX_ mydie_pp, &mydie_xop);
 
     next_keyword_plugin =  PL_keyword_plugin;
     PL_keyword_plugin   = mark_keyword_plugin;

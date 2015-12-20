@@ -8,7 +8,7 @@ my $x;
 mark LABEL: {
     unwind LABEL: "value";
 } or do {
-    is($@, "value");
+    like($@, qr/value/);
     $x = 'foo';
 };
 is($x,'foo', 'Variable correctly set after mark block');
