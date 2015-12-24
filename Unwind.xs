@@ -1,7 +1,7 @@
+#define PERL_NO_GET_CONTEXT
 #include "EXTERN.h"
 #include "perl.h"
 #include "XSUB.h"
-
 #include "unwind_debug.h"
 
 static XOP label_xop;
@@ -27,7 +27,7 @@ my_with_queued_errors(pTHX_ SV *ex)
 static OP* label_pp(pTHX) { return NORMAL; }
 
 static OP* mydie_pp(pTHX) {
-    Perl_die_unwind(ERRSV);
+    Perl_die_unwind(aTHX_ ERRSV);
 }
 
 static OP* detour_pp(pTHX)
@@ -110,11 +110,11 @@ static OP* detour_pp(pTHX)
             }
         }
         if (label_cxix < 0) {
-            Perl_write_to_stderr(
-                my_with_queued_errors(
-                    mess("Can not setup a detour: label '%s' not found. Exiting..",
-                         label)));
-            Perl_my_failure_exit();
+            Perl_write_to_stderr(aTHX_
+                my_with_queued_errors(aTHX_
+                                      mess("Can not setup a detour: label '%s' not found. Exiting..",
+                                           label)));
+            my_failure_exit();
         }
 
         POPSTACK_TO(si->si_stack);
@@ -141,7 +141,7 @@ static OP* detour_pp(pTHX)
         CvDEPTH(diehook_cv) = olddepth;
     }
 
-    Perl_die_sv(exsv);
+    die_sv(exsv);
     assert(0); /* NOTREACHED */
 }
 
@@ -327,7 +327,7 @@ mark_keyword_plugin(pTHX_
         label_op->op_ppaddr = label_pp;
 
         *op_ptr =
-            disable_scalar_context_optimization(
+            disable_scalar_context_optimization(aTHX_
                 op_append_elem(OP_LIST, eval_block, label_op));
 
 
@@ -341,7 +341,7 @@ mark_keyword_plugin(pTHX_
         OP *expr;
 
         label = _parse_label(aTHX);
-        expr  = parse_listexpr(aTHX_ PARSE_OPTIONAL);
+        expr  = parse_listexpr(PARSE_OPTIONAL);
         expr  = op_contextualize(expr, G_ARRAY);
 
         *op_ptr =  op_convert_list(OP_CUSTOM, 0,

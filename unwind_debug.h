@@ -11,6 +11,7 @@ static void _deb_cx(pTHX);
 
 static void DEBUG_printf(char *fmt, ...) {
 #ifdef DEBUGGING
+    dTHX;
     va_list ap;
     va_start(ap, fmt);
     PerlIO_vprintf(PerlIO_stderr(), fmt, ap);
