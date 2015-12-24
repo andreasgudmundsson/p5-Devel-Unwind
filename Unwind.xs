@@ -36,7 +36,7 @@ static OP* detour_pp(pTHX)
 
     label = SvPVX(POPs);
     if (SP - MARK != 1) {
-	exsv = newSVpvn("",0);
+	exsv = newSVpvs_flags("",SVs_TEMP);
 	do_join(exsv, &PL_sv_no, MARK, SP);
 	SP = MARK + 1;
     } else {
@@ -75,6 +75,7 @@ static OP* detour_pp(pTHX)
             }
         }
     }
+
      /* die_unwind() is called directly to skip the $SIG{__DIE__} handler */
     Perl_die_unwind(exsv);
     assert(0); /* NOTREACHED */
