@@ -5,9 +5,18 @@
 #include "unwind_debug.h"
 
 #ifndef op_convert_list
-  PERL_CALLCONV  OP* Perl_convert(pTHX_ I32 optype, I32 flags, OP* o);
-  #define op_convert_list(a,b,c)  Perl_convert(aTHX_ a,b,c)
+PERL_CALLCONV  OP* Perl_convert(pTHX_ I32 optype, I32 flags, OP* o);
+#define op_convert_list(a,b,c)  Perl_convert(aTHX_ a,b,c)
 #endif
+
+#ifndef pad_add_name_pvn
+PERL_CALLCONV PADOFFSET Perl_pad_add_name(pTHX_ const char *namepv,
+                                          STRLEN namelen,U32 flags,
+                                          HV *typestash, HV *ourstash);
+#define pad_add_name_pvs(a,b,c,d) Perl_pad_add_name(aTHX_ STR_WITH_LEN(a),b,c,d)
+#define padadd_NO_DUP_CHECK 0x04
+#endif
+
 
 static XOP label_xop;
 static XOP unwind_xop;
