@@ -218,7 +218,7 @@ disable_scalar_context_optimization(pTHX_ OP *mark_expr) {
 
     a1 = newOP(OP_PADAV, OPf_MOD  | (OPpLVAL_INTRO<<8));
     a2 = newOP(OP_PADAV, 0);
-    a3 = newOP(OP_PADAV, 0);
+    a3 = newOP(OP_PADAV, OPf_REF);
     a1->op_targ = a2->op_targ = a3->op_targ = padoff;
 
     assign_to_array =  newSTATEOP(0, NULL,
@@ -243,10 +243,10 @@ disable_scalar_context_optimization(pTHX_ OP *mark_expr) {
     std_warning_cop = newSTATEOP(0, NULL, 0);
     cCOPx(std_warning_cop)->cop_warnings = pWARN_NONE;
 
-    block = op_append_elem(OP_LIST, assign_to_array, newSTATEOP(0, NULL, 0));
-    block = op_append_elem(OP_LIST, block, die_if_error);
-    block = op_append_elem(OP_LIST, block, std_warning_cop);
-    block = op_append_elem(OP_LIST, block, wantarray);
+    block = op_append_elem(OP_LINESEQ, assign_to_array, newSTATEOP(0, NULL, 0));
+    block = op_append_elem(OP_LINESEQ, block, die_if_error);
+    block = op_append_elem(OP_LINESEQ, block, std_warning_cop);
+    block = op_append_elem(OP_LINESEQ, block, wantarray);
 
     return create_eval(aTHX_ block);
 }
