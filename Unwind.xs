@@ -4,6 +4,11 @@
 #include "XSUB.h"
 #include "unwind_debug.h"
 
+#ifndef op_convert_list
+  PERL_CALLCONV  OP* Perl_convert(pTHX_ I32 optype, I32 flags, OP* o);
+  #define op_convert_list(a,b,c)  Perl_convert(aTHX_ a,b,c)
+#endif
+
 static XOP label_xop;
 static XOP unwind_xop;
 static XOP mydie_xop;
@@ -143,6 +148,7 @@ static OP* detour_pp(pTHX)
 
     die_sv(exsv);
     assert(0); /* NOTREACHED */
+    return NULL; /* SILENCE GCC */
 }
 
 static int
