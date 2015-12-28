@@ -30,10 +30,7 @@ my_with_queued_errors(pTHX_ SV *ex)
 }
 
 static OP* label_pp(pTHX) { return NORMAL; }
-
-static OP* mydie_pp(pTHX) {
-    Perl_die_unwind(aTHX_ ERRSV);
-}
+static OP* mydie_pp(pTHX) { Perl_die_unwind(aTHX_ ERRSV); }
 
 static OP* detour_pp(pTHX)
 {
@@ -46,9 +43,7 @@ static OP* detour_pp(pTHX)
     CV *diehook_cv = NULL;
 
     if (PL_diehook) {
-        /*
-          WIP: Document this magic
-         */
+        /* See [Note: Prevent infinite recursion in die hook] */
         HV *stash;
         GV *gv;
         SV * const oldhook = PL_diehook;
@@ -136,11 +131,13 @@ static OP* detour_pp(pTHX)
     }
 
     if (PL_diehook) {
-        /* If we're running inside the die hook then the previous POPSUB
+        /* Note: Prevent infinite recursion in die hook
+           --------------------------------------------
+           If we're running inside the die hook then the previous POPSUB
            restored the CvDEPTH to zero. We restore the old CvDEPTH
            to prevent infinitie recursion in the die hook.
 
-           If we're not runnin inside the die hook then
+           If we're not running inside the die hook then
            CvDEPTH(diehook_cv) equals olddepth;
          */
         CvDEPTH(diehook_cv) = olddepth;
