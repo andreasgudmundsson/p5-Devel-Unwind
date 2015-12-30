@@ -10,7 +10,7 @@ die "Can't fork" unless defined $pid;
 
 if ($pid == 0) {
     open STDERR, '>', File::Spec->devnull();
-    mark FOO: { unwind BAR:; };
+    mark FOO { unwind BAR; };
     exit(0);
 }
 waitpid $pid,0;

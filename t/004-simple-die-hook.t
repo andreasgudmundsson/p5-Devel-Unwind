@@ -5,11 +5,11 @@ use Test::More;
 use Stack::Unwind;
 
 $SIG{__DIE__} = sub {
-    unwind FOO:;
+    unwind FOO;
 };
 
 eval {
-    mark FOO: {
+    mark FOO {
         eval {
             die "from eval";
             fail "Execution resumes in eval";

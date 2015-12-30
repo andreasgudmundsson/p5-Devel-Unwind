@@ -295,13 +295,20 @@ static OP *_parse_block(pTHX)
 }
 
 static SV *_parse_label(pTHX) {
-    I32 error_count = PL_parser->error_count;
-    SV *label = parse_label(0);
+    SV *label;
+    char *start;
+    char *end;;
 
-    if (error_count < PL_parser->error_count)
+    lex_read_space(0);
+    start = end = PL_parser->bufptr;
+    if (!isIDFIRST(*start)) {
         croak("Invalid label at %s.\n", OutCopFILE(PL_curcop));
-    else
-        DEBUG_printf("Valid label: %s\n", SvPV_nolen(label));
+    }
+    while (isALNUM(*++end));
+    lex_read_to(end);
+
+    label = newSVpv(start, end-start);
+    DEBUG_printf("Valid label: %s\n", SvPV_nolen(label));
 
     return label;
 }

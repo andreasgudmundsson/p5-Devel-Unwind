@@ -4,9 +4,9 @@ use strict;
 use Test::More;
 use Stack::Unwind 'unwind';
 
-mark TOPLEVEL: {
+mark TOPLEVEL {
     eval {
-        unwind TOPLEVEL:;
+        unwind TOPLEVEL;
         fail "Execution after die";
         1;
     } or do {

@@ -6,11 +6,11 @@ use Stack::Unwind;
 use Time::HiRes qw(alarm sleep);
 
 $SIG{ALRM} = sub {
-    unwind FOO:;
+    unwind FOO;
 };
 
 eval {
-    mark FOO: {
+    mark FOO {
         eval { #[A]
             eval {
                 alarm 0.2;

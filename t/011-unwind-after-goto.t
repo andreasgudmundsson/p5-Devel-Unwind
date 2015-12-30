@@ -4,12 +4,12 @@ use warnings;
 use Test::More;
 use Stack::Unwind;
 
-mark FOO: {
+mark FOO {
     goto BAR;
 };
 BAR:
-mark FOOBAR: {
-    unwind FOOBAR:;
+mark FOOBAR {
+    unwind FOOBAR;
     fail "NOK";
 };
 pass "OK";

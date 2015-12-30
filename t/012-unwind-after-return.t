@@ -5,7 +5,7 @@ use Test::More;
 use Stack::Unwind;
 
 eval {
-    mark FOO: {
+    mark FOO {
         return 1;
     };
     return 1;
@@ -13,9 +13,9 @@ eval {
     fail "Died when returning from mark";
 };
 
-mark FOOBAR: {
-    unwind FOOBAR:;
-    fail "Execution resumed inside mark FOOBAR: after unwind";
+mark FOOBAR {
+    unwind FOOBAR;
+    fail "Execution resumed inside mark FOOBAR after unwind";
 };
 pass "Execution resumed after mark";
 done_testing;

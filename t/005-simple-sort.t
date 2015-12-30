@@ -4,10 +4,10 @@ use warnings;
 use Test::More;
 use Stack::Unwind;
 
-mark FOO: {
+mark FOO {
     eval {
         my @a = sort {
-            unwind FOO:;
+            unwind FOO;
         } qw/a b c d/;
         fail "Execution resumes in eval";
         1;

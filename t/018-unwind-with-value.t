@@ -6,9 +6,9 @@ use Scalar::Util 'blessed';
 use Stack::Unwind 'unwind';
 
 my $entered_do;
-mark TOPLEVEL: {
+mark TOPLEVEL {
     eval {
-        unwind TOPLEVEL: (bless [], "FOO");
+        unwind TOPLEVEL (bless [], "FOO");
         fail "Execution after die";
         1;
     } or do {
@@ -23,8 +23,8 @@ mark TOPLEVEL: {
 ok($entered_do, "Entered do block");
 undef $entered_do;
 
-mark TOPLEVEL: {
-    unwind TOPLEVEL: 1..5;
+mark TOPLEVEL {
+    unwind TOPLEVEL 1..5;
     1;
 } or do {
     $entered_do = 1;

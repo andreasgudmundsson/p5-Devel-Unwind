@@ -4,7 +4,7 @@
     use Stack::Unwind;
 
     sub bar {
-        unwind TOPLEVEL:;
+        unwind TOPLEVEL;
         fail "Execution resumed inside mark";
     }
 }
@@ -16,7 +16,7 @@ use Test::More;
 use Stack::Unwind;
 
 
-mark TOPLEVEL: {
+mark TOPLEVEL {
     (bless [], "Foo")->bar;
     fail "Execution resumed inside mark";
 };

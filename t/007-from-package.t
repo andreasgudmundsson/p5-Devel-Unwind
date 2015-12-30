@@ -8,7 +8,7 @@ use lib 't/lib';
 use Foobar;
 
 my $x;
-mark FOO: {
+mark FOO {
     eval {
         $x = 'foo';
         Foobar::unwind();

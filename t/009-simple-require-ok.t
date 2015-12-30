@@ -6,7 +6,7 @@ use Stack::Unwind;
 
 use lib 't/lib';
 
-mark FOO: {
+mark FOO {
     eval {
         require "required_unwind_ok.pm";
         fail "Execution resumes in eval";

@@ -6,7 +6,7 @@ use strict;
 use Stack::Unwind;
 
 sub unwind {
-    unwind FOO:;
+    unwind FOO;
 }
 
 1;

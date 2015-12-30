@@ -5,7 +5,7 @@ use Test::More;
 use Stack::Unwind;
 
 my $x;
-mark FOO: {
+mark FOO {
     die "died in mark";
     fail "Execution resumed in mark";
     1;

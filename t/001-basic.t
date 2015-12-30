@@ -5,8 +5,8 @@ use Test::More tests => 2;
 use Stack::Unwind;
 
 my $x;
-mark LABEL: {
-    unwind LABEL: "value";
+mark LABEL {
+    unwind LABEL "value";
 } or do {
     like($@, qr/value/);
     $x = 'foo';

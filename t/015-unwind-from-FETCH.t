@@ -7,12 +7,12 @@ use Stack::Unwind;
 sub TIESCALAR { bless [] }
 sub FETCH {
     eval { eval {
-        unwind LABEL:;
+        unwind LABEL;
     }};
 }
 
 my $a = "b";
-mark LABEL: {
+mark LABEL {
     my $x;
     $a = "a";
     tie $x, 'main';
