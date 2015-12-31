@@ -2,7 +2,7 @@ use warnings;
 use strict;
 
 use Test::More;
-use Stack::Unwind 'unwind';
+use Devel::Unwind 'unwind';
 
 mark TOPLEVEL {
     eval {

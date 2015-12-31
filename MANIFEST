@@ -2,7 +2,7 @@ MANIFEST
 Makefile.PL
 Unwind.xs
 unwind_debug.h
-lib/Stack/Unwind.pm
+lib/Devel/Unwind.pm
 t/000-use.t
 t/001-basic.t
 t/002-simple.t

@@ -3,7 +3,7 @@ package Foobar;
 use warnings;
 use strict;
 
-use Stack::Unwind;
+use Devel::Unwind;
 
 sub unwind {
     unwind FOO;

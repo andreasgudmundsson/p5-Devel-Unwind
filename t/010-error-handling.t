@@ -1,7 +1,7 @@
 use warnings;
 use strict;
 
-use Stack::Unwind;
+use Devel::Unwind;
 use Test::More;
 use File::Spec;
 

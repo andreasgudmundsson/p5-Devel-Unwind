@@ -1,9 +1,9 @@
 use ExtUtils::MakeMaker;
 
 WriteMakefile(
-    NAME => "Stack::Unwind",
+    NAME => "Devel::Unwind",
     ABSTRACT => "Unwind the stack to a set mark",
-    VERSION_FROM => "lib/Stack/Unwind.pm",
+    VERSION_FROM => "lib/Devel/Unwind.pm",
     LICENSE => "perl",
 );
 

@@ -1,5 +1,5 @@
 use Test::More tests => 1;
 
 BEGIN {
-    use_ok 'Stack::Unwind'
+    use_ok 'Devel::Unwind'
 }

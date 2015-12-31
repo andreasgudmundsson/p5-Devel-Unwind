@@ -3,7 +3,7 @@ use strict;
 
 use Test::More;
 use Scalar::Util 'blessed';
-use Stack::Unwind 'unwind';
+use Devel::Unwind 'unwind';
 
 my $entered_do;
 mark TOPLEVEL {

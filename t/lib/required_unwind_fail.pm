@@ -1,4 +1,4 @@
-use Stack::Unwind;
+use Devel::Unwind;
 
 unwind FOO;
 # There's something going on here if the module returns 0

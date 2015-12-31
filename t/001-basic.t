@@ -2,7 +2,7 @@ use strict;
 use warnings;
 
 use Test::More tests => 2;
-use Stack::Unwind;
+use Devel::Unwind;
 
 my $x;
 mark LABEL {

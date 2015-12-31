@@ -1,4 +1,4 @@
-package Stack::Unwind;
+package Devel::Unwind;
 use strict;
 use XSLoader;
 use Exporter;

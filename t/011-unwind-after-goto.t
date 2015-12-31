@@ -2,7 +2,7 @@ use strict;
 use warnings;
 
 use Test::More;
-use Stack::Unwind;
+use Devel::Unwind;
 
 mark FOO {
     goto BAR;

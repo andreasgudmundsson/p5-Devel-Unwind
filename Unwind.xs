@@ -376,7 +376,7 @@ mark_keyword_plugin(pTHX_
     }
 }
 
-MODULE = Stack::Unwind PACKAGE = Stack::Unwind
+MODULE = Devel::Unwind PACKAGE = Devel::Unwind
 
 PROTOTYPES: DISABLE
 

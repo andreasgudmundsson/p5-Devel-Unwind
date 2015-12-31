@@ -2,7 +2,7 @@ use strict;
 use warnings;
 
 use Test::More;
-use Stack::Unwind;
+use Devel::Unwind;
 
 my $i=0;
 my $x;

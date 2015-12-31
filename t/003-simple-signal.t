@@ -2,7 +2,7 @@ use strict;
 use warnings;
 
 use Test::More;
-use Stack::Unwind;
+use Devel::Unwind;
 use Time::HiRes qw(alarm sleep);
 
 $SIG{ALRM} = sub {

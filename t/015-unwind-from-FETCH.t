@@ -2,7 +2,7 @@ use warnings;
 use strict;
 
 use Test::More;
-use Stack::Unwind;
+use Devel::Unwind;
 
 sub TIESCALAR { bless [] }
 sub FETCH {
