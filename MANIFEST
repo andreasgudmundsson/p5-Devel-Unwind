@@ -20,3 +20,9 @@ t/013-unwind-in-double-mark.t
 t/014-die-in-mark.t
 t/015-unwind-from-FETCH.t
 t/016-unwind-from-method.t
+t/017-unwind-from-double-FETCH.t
+t/018-unwind-with-value.t
+t/019-mark-as-expr.t
+t/lib/Foobar.pm
+t/lib/required_unwind_fail.pm
+t/lib/required_unwind_ok.pm
