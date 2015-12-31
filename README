@@ -1,12 +1,29 @@
-IDEA
-----
-Unwind the stack and resume execution at a predefined
-point somewhere in the dynamic context. I.e. I want to
-"die to a label" from anywhere.
+Imagine Perl had the ability to die to a labelled eval so that when
+you write
 
-mark FOO {
-     unwind FOO;
-}
+  FOO: eval {...}
 
-Once I've figured this out I'd like to the idea further
-and do a PoC for structured exception handling.
+you could die to that labelled eval
+
+  die FOO "bar";
+
+That is essentially what Devel::Unwind gives you.
+Two custom keywords 'mark','unwind' are added allowing
+you two write
+
+  use Devel::Unwind;
+
+  mark FOO {...} or do {...}
+  unwind FOO "bar";
+  unwind FOO "bar","baz";
+  unwind FOO (bless [], "Bar");
+  unwind FOO;
+
+Wherever you would put a block 'eval' an 'mark' expression can be
+used.  And wherever you would 'die' you can 'unwind'. If a
+$SIG{__DIE__} handler is installed then it gets called on
+'unwind'. The arguments to 'unwind' are treated the same way as the
+arguments to 'die'. Multiple arguments are joined to togeter, a single
+argument is passed through untouched unless it is a object with
+PROPAGATE method in which case $@ gets replaced by the return value of
+that method. For details read the documentation of die.
