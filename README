@@ -1,9 +1,9 @@
-Imagine Perl had the ability to die to a labelled eval so that when
+Imagine Perl had the ability to die to a labeled eval so that when
 you write
 
   FOO: eval {...}
 
-you could die to that labelled eval
+you could die to that labeled eval
 
   die FOO "bar";
 
@@ -23,7 +23,7 @@ Wherever you would put a block 'eval' an 'mark' expression can be
 used.  And wherever you would 'die' you can 'unwind'. If a
 $SIG{__DIE__} handler is installed then it gets called on
 'unwind'. The arguments to 'unwind' are treated the same way as the
-arguments to 'die'. Multiple arguments are joined to togeter, a single
+arguments to 'die'. Multiple arguments are joined to together, a single
 argument is passed through untouched unless it is a object with
 PROPAGATE method in which case $@ gets replaced by the return value of
 that method. For details read the documentation of die.
