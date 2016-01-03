@@ -70,7 +70,7 @@ static OP* detour_pp(pTHX)
 	do_join(exsv, &PL_sv_no, MARK, SP);
 	SP = MARK + 1;
     } else {
-        exsv = POPs;
+        exsv = sv_mortalcopy(POPs);
     }
 
     if (SvROK(exsv) || (SvPV_const(exsv, len), len)) {
