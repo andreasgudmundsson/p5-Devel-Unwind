@@ -2,7 +2,7 @@ use warnings;
 use strict;
 
 use Test::More;
-use Devel::Unwind 'unwind';
+use Devel::Unwind;
 
 is(scalar(mark L {3}),3,"The value of mark in scalar context is correct");
 is_deeply([mark L {1..10}],[1..10] ,"The value of mark in array context is correct");
