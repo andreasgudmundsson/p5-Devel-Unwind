@@ -327,7 +327,7 @@ mark_keyword_plugin(pTHX_
           Transform
              mark LABEL: BLOCK
           to
-            eval BLOCK; PVOP(label_pp, LABEL)
+            eval BLOCK, PVOP(label_pp, LABEL)
           think of it as
             LABEL: eval BLOCK
           and we label the eval by making sure a labeled PVOP
