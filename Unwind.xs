@@ -202,9 +202,6 @@ disable_scalar_context_optimization(pTHX_ OP *mark_expr) {
       }
     }
 
-  And since I call die here I do end up calling the $SIG{__DIE__}
-  handler.
-
   This feels dirty but it's all I've got :/
 */
     PADOFFSET padoff;
