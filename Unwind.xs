@@ -120,9 +120,10 @@ static OP* detour_pp(pTHX)
         }
         if (label_cxix < 0) {
             Perl_write_to_stderr(aTHX_
-                my_with_queued_errors(aTHX_
-                                      mess("Can not setup a detour: label '%s' not found. Exiting..",
-                                           label)));
+                                 my_with_queued_errors(aTHX_
+                                                       mess("'unwind %s' exiting: %s",
+                                                            label,
+                                                            SvPV_nolen(exsv))));
             my_failure_exit();
         }
 
