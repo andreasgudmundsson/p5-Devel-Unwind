@@ -4,6 +4,8 @@
 #include "XSUB.h"
 #include "unwind_debug.h"
 
+#define MODULE_NAME "Devel::Unwind"
+
 #ifndef op_convert_list
 PERL_CALLCONV  OP* Perl_convert(pTHX_ I32 optype, I32 flags, OP* o);
 #define op_convert_list(a,b,c)  Perl_convert(aTHX_ a,b,c)
@@ -16,7 +18,6 @@ PERL_CALLCONV PADOFFSET Perl_pad_add_name(pTHX_ const char *namepv,
 #define pad_add_name_pvs(a,b,c,d) Perl_pad_add_name(aTHX_ STR_WITH_LEN(a),b,c,d)
 #define padadd_NO_DUP_CHECK 0x04
 #endif
-
 
 static XOP label_xop;
 static XOP unwind_xop;
@@ -300,7 +301,10 @@ static SV *_parse_label(pTHX) {
     lex_read_space(0);
     start = end = PL_parser->bufptr;
     if (!isIDFIRST(*start)) {
-        croak("Invalid label at %s.\n", OutCopFILE(PL_curcop));
+        croak(MODULE_NAME ": Invalid label at %s. Got '%c'.\n",
+              OutCopFILE(PL_curcop),
+              *start
+            );
     }
     while (isALNUM(*++end));
     lex_read_to(end);
