@@ -231,12 +231,12 @@ disable_scalar_context_optimization(pTHX_ OP *mark_expr) {
     assign_to_array =  newSTATEOP(0, NULL,
                                   newASSIGNOP(OPf_STACKED, a1, 0, mark_expr));
 
-    die_if_error =/* I'm missing: local $SIG{__DIE__}=undef; */
+    die_if_error =
         newLOGOP(OP_AND, 0,
                  newUNOP(OP_RV2SV, 0,
                          newGVOP(OP_GV, 0, PL_errgv)),
                  (o = newOP(OP_CUSTOM, 0),
-                  o->op_ppaddr = mydie_pp,
+                  o->op_ppaddr = mydie_pp, /* mydie_pp doesn't call the die hook */
                   o));
 
     wantarray =  newCONDOP(0,
