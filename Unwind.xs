@@ -360,7 +360,9 @@ mark_keyword_plugin(pTHX_
         OP *expr;
 
         label = _parse_label(aTHX);
+
         expr  = parse_listexpr(PARSE_OPTIONAL);
+        expr  = expr ? expr : newOP(OP_STUB,0);
         expr  = op_contextualize(expr, G_ARRAY);
 
         *op_ptr =  op_convert_list(OP_CUSTOM, 0,

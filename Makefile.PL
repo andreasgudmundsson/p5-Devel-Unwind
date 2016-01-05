@@ -1,10 +1,23 @@
 use ExtUtils::MakeMaker;
 
+use utf8;
+
 WriteMakefile(
     NAME => "Devel::Unwind",
-    ABSTRACT => "Unwind the stack to a set mark",
-    VERSION_FROM => "lib/Devel/Unwind.pm",
+    ABSTRACT_FROM => "lib/Devel/Unwind.pm",
+    VERSION_FROM  => "lib/Devel/Unwind.pm",
     LICENSE => "perl",
+    AUTHOR => 'Andreas Guðmundsson (andreasg@cpan.org)',
+    META_MERGE     => {
+        'meta-spec' => { version => 2 },
+        resources   => {
+            repository => {
+                type => 'git',
+                url  => 'git@github.com:andreasgudmundsson/p5-Devel-Unwind',
+                web  => 'https://github.com/andreasgudmundsson/p5-Devel-Unwind',
+            },
+        },
+    },
 );
 
 # Add -Wall to CCFLAGS without overwriting the defaults
