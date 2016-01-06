@@ -8,6 +8,7 @@ WriteMakefile(
     VERSION_FROM  => "lib/Devel/Unwind.pm",
     LICENSE => "perl",
     AUTHOR => 'Andreas Guðmundsson (andreasg@cpan.org)',
+    MIN_PERL_VERSION => '5.14.0',
     META_MERGE     => {
         'meta-spec' => { version => 2 },
         resources   => {
