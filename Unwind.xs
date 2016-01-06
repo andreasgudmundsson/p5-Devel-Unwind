@@ -373,7 +373,7 @@ mark_keyword_plugin(pTHX_
                                                   newSVOP(OP_CONST, 0, label)));
         (*op_ptr)->op_ppaddr = detour_pp;
 
-        return KEYWORD_PLUGIN_STMT;
+        return KEYWORD_PLUGIN_EXPR;
     }
     else {
         return next_keyword_plugin(aTHX_ keyword_ptr, keyword_len, op_ptr);
