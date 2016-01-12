@@ -39,10 +39,18 @@ my_with_queued_errors(pTHX_ SV *ex)
     return ex;
 }
 
+static int
+consume_space()
+{
+    char *start = PL_parser->bufptr;
+    lex_read_space(0);
+    return start!=PL_parser->bufptr; /* Consumed space? */
+}
+
 static OP* label_pp(pTHX) { return NORMAL; }
 static OP* mydie_pp(pTHX) { Perl_die_unwind(aTHX_ ERRSV); }
 
-static OP* detour_pp(pTHX)
+static OP* unwind_pp(pTHX)
 {
     dVAR; dSP; dMARK;
     SV *exsv;
@@ -302,7 +310,7 @@ static SV *_parse_label(pTHX) {
     start = end = PL_parser->bufptr;
     if (!isIDFIRST(*start)) {
         croak(MODULE_NAME ": Invalid label at %s. Got '%c'.\n",
-              OutCopFILE(PL_curcop),
+              CopFILE(PL_curcop),
               *start
             );
     }
@@ -358,20 +366,29 @@ mark_keyword_plugin(pTHX_
         /*
           unwind LABEL [EXPRESSION];
          */
-        SV *label;
-        OP *expr;
+        SV *label= NULL;
+        OP *expr = NULL;
+        int space;
 
         label = _parse_label(aTHX);
-
-        expr  = parse_listexpr(PARSE_OPTIONAL);
-        expr  = expr ? expr : newOP(OP_STUB,0);
+        space = consume_space();
+        if (*PL_parser->bufptr != ',') {
+            expr  = parse_listexpr(PARSE_OPTIONAL);
+            if (!space && expr) {
+                PL_parser->error_count++;
+                croak(MODULE_NAME
+                      ": Syntax error near '%s' when parsing label.",
+                      SvPVX(label));
+            }
+            expr  = expr ? expr : newOP(OP_STUB,0);
+        }
         expr  = op_contextualize(expr, G_ARRAY);
 
         *op_ptr =  op_convert_list(OP_CUSTOM, 0,
                                    op_append_elem(OP_LIST,
                                                   expr,
                                                   newSVOP(OP_CONST, 0, label)));
-        (*op_ptr)->op_ppaddr = detour_pp;
+        (*op_ptr)->op_ppaddr = unwind_pp;
 
         return KEYWORD_PLUGIN_EXPR;
     }
@@ -393,7 +410,7 @@ BOOT:
     XopENTRY_set(&unwind_xop, xop_name,  "unwind");
     XopENTRY_set(&unwind_xop, xop_desc,  "unwind the stack to the mark");
     XopENTRY_set(&unwind_xop, xop_class, OA_PVOP_OR_SVOP);
-    Perl_custom_op_register(aTHX_ detour_pp, &unwind_xop);
+    Perl_custom_op_register(aTHX_ unwind_pp, &unwind_xop);
 
     XopENTRY_set(&mydie_xop, xop_name,  "mydie");
     XopENTRY_set(&mydie_xop, xop_desc,  "mydie, dies without calling the SIGDIE handler");

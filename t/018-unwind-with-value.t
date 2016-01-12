@@ -24,7 +24,7 @@ ok($entered_do, "Entered do block");
 undef $entered_do;
 
 mark TOPLEVEL {
-    unwind TOPLEVEL 1..5;
+    unwind TOPLEVEL 1..5 if 1;
     1;
 } or do {
     $entered_do = 1;
