@@ -4,7 +4,7 @@ use XSLoader;
 use Exporter;
 
 our @ISA = qw(Exporter);
-our $VERSION = '0.011';
+our $VERSION = '0.012';
 
 XSLoader::load(__PACKAGE__, $VERSION);
 
