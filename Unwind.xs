@@ -40,7 +40,7 @@ my_with_queued_errors(pTHX_ SV *ex)
 }
 
 static int
-consume_space()
+consume_space(pTHX)
 {
     char *start = PL_parser->bufptr;
     lex_read_space(0);
@@ -371,7 +371,7 @@ mark_keyword_plugin(pTHX_
         int space;
 
         label = _parse_label(aTHX);
-        space = consume_space();
+        space = consume_space(aTHX);
         if (*PL_parser->bufptr != ',') {
             expr  = parse_listexpr(PARSE_OPTIONAL);
             if (!space && expr) {
