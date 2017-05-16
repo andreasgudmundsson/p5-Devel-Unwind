@@ -51,27 +51,12 @@ static OP* label_pp(pTHX) { return NORMAL; }
 static OP* mydie_pp(pTHX) { Perl_die_unwind(aTHX_ ERRSV); }
 
 static OP* unwind_pp(pTHX)
+
 {
     dVAR; dSP; dMARK;
     SV *exsv;
     STRLEN len;
     const char *label;
-
-    int olddepth = 0;
-    CV *diehook_cv = NULL;
-
-    if (PL_diehook) {
-        /* See [Note: Prevent infinite recursion in die hook] */
-        HV *stash;
-        GV *gv;
-        SV * const oldhook = PL_diehook;
-        ENTER;
-        SAVESPTR(PL_diehook);
-        PL_diehook = NULL;
-        diehook_cv = sv_2cv(oldhook, &stash, &gv, 0);
-        LEAVE;
-        olddepth = CvDEPTH(diehook_cv);
-    }
 
     label = SvPVX(POPs);
     if (SP - MARK != 1) {
@@ -149,20 +134,7 @@ static OP* unwind_pp(pTHX)
         }
     }
 
-    if (PL_diehook) {
-        /* Note: Prevent infinite recursion in die hook
-           --------------------------------------------
-           If we're running inside the die hook then the previous POPSUB
-           restored the CvDEPTH to zero. We restore the old CvDEPTH
-           to prevent infinitie recursion in the die hook.
-
-           If we're not running inside the die hook then
-           CvDEPTH(diehook_cv) equals olddepth;
-         */
-        CvDEPTH(diehook_cv) = olddepth;
-    }
-
-    die_sv(exsv);
+    Perl_die_unwind(exsv);
     assert(0); /* NOTREACHED */
     return NULL; /* SILENCE GCC */
 }
