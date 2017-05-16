@@ -163,11 +163,8 @@ mycx_dump(pTHX_ PERL_CONTEXT *cx)
 
     case CXt_LOOP_LAZYIV:
     case CXt_LOOP_LAZYSV:
-    case CXt_LOOP_FOR:
     case CXt_LOOP_PLAIN:
 	PerlIO_printf(Perl_debug_log, "BLK_LOOP.LABEL = %s\n", CxLABEL(cx));
-	PerlIO_printf(Perl_debug_log, "BLK_LOOP.RESETSP = %ld\n",
-		(long)cx->blk_loop.resetsp);
 	PerlIO_printf(Perl_debug_log, "BLK_LOOP.MY_OP = 0x%"UVxf"\n",
 		PTR2UV(cx->blk_loop.my_op));
 	/* XXX: not accurate for LAZYSV/IV */
